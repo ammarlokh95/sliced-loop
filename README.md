@@ -3,17 +3,14 @@
 **Build a full-stack feature with agents that can't quietly break each other's
 half.**
 
-A single agent holding a whole codebase in context drifts. It changes a screen
-to work around a server bug, invents an endpoint shape and then builds both
-sides against the invention, marks its own work done, and loses everything it
-learned the moment the session ends. The larger the project gets, the worse each
-of those gets.
+One agent holding a whole codebase drifts. It patches a screen to hide a server
+bug, invents an endpoint shape and builds both sides against the invention,
+marks its own work done, and forgets everything when the session ends.
 
-This plugin splits the work the way a team would, and then enforces the split.
-Two engineers own one tree each and genuinely cannot see the other's. They
-coordinate through a written API contract, the same as humans in different
-repositories. A third agent decides what gets built next and accepts the work —
-but never touches the code, so nobody grades their own homework.
+This plugin splits the work the way a team would, then enforces the split. Two
+engineers own one tree each and cannot see the other's; they coordinate through
+a written API contract. A third decides what gets built and accepts it, but
+never writes code — so nobody grades their own homework.
 
 ## What it actually does
 
@@ -38,49 +35,49 @@ anything it decided.
 
 ## Features
 
-**The boundary is enforced, not requested.** A `PreToolUse` hook blocks the
-frontend agent from reading the backend tree and vice versa, before the read
-happens. Neither can paper over the other's bug, so a frontend that needs an
-endpoint has to open a task stating the exact contract — method, path, auth,
-schemas, status codes, error shape.
+**Enforced boundary.** A hook blocks each engineer from reading the other's tree
+— before the read happens. Need an endpoint? Open a task stating the contract.
 
-**Work is cut vertically.** Layering — all the models, then all the endpoints,
-then all the screens — leaves nothing demonstrable until the end and blocks
-every frontend task behind every backend task. Slices give you something that
-works after the first one.
+**Vertical slices.** Every task is one user-visible outcome through both trees,
+so something works after the first slice instead of the last.
 
-**The plan is complete before the build starts.** The backlog covers the whole
-initial scope, so reading it end to end shows you the finished project. Contract
-details that genuinely depend on what earlier slices teach you are marked
-provisional and sharpened later, not guessed at now.
+**Whole scope planned up front.** Read the backlog end to end and you see the
+finished project. Details that depend on later learning are marked provisional,
+not guessed.
 
-**Nobody accepts their own work.** The supervisor decides *what* and *when*;
-the specialists decide *how*, and that decision stands. It can reject a task as
-not worth doing; it can't reject an implementation because it would have written
-it differently.
+**Nobody accepts their own work.** The supervisor decides what and when;
+specialists decide how. It can reject a task as not worth doing — not an
+implementation it would have written differently.
 
-**Context is spent deliberately.** One task per agent session, then the session
-ends — that's what discards the context. What was learned carries forward in a
-per-agent memory file, read first and rewritten last, condensed by its owner
-when it grows past ~100 lines.
+**One task per session.** Ending the session is what discards the context. What
+was learned carries in a per-agent memory file, condensed by its owner past
+~100 lines.
 
-**Dead sessions are recovered.** A claim nothing has touched for longer than a
-session runs is reported `STALE` and re-dispatched as a resume. Without this, one
-rate limit leaves a task claimed forever while every tick reports success.
+**Dead sessions recovered.** A claim nothing has touched for longer than a
+session runs is re-dispatched as a resume. Otherwise one rate limit strands a
+task forever while every tick reports success.
 
-**Any layout works.** A config file names your two trees — `apps/web` +
-`services/api`, `client/` + `server/`, anything. Without that file the plugin
-stays completely inert, so installing it doesn't affect your other repositories.
+**Any layout.** A config file names your two trees. Without it the plugin is
+inert, so installing it can't disturb your other repos.
 
-**You outrank all of it.** The board writes your drag straight into the task
-file and records it as a manual override. Nothing is hidden in a database.
+**You outrank it.** Drag a card on the board; it writes straight into the task
+file as a manual override.
 
 ## Install
 
-```bash
-/plugin marketplace add /path/to/sliced-loop
+```
+/plugin marketplace add ammarlokh95/sliced-loop
 /plugin install sliced-loop@sliced-loop
 ```
+
+From a local clone instead, point at the folder:
+
+```
+/plugin marketplace add /path/to/sliced-loop
+```
+
+A local marketplace reads from that path, so don't move the folder while it is
+installed. `/plugin marketplace update sliced-loop` pulls later changes.
 
 Then, in the repository you want it to work on:
 
@@ -88,8 +85,9 @@ Then, in the repository you want it to work on:
 /sliced-loop:init
 ```
 
-**Restart afterwards** (`claude --continue` keeps the conversation). Agents and
-hooks are read at startup, so the session that installs the plugin cannot use it.
+**Restart afterwards** — `claude --continue` keeps the conversation. Agents,
+hooks and commands are read at startup, so the session that installs the plugin
+cannot use it. Check it loaded with `/agents` and `/hooks`.
 
 ## Use it
 
@@ -142,13 +140,11 @@ can't read or edit by hand.
 
 ## The board is local
 
-The board is part of the plugin, not your project. It is served from the plugin
-install, so nothing is copied into your repository and there is nothing to
-commit or gitignore. The only files it writes are the task files a drag edits.
+The board lives in the plugin, not your project — nothing is copied into your
+repo, and the only files it writes are the task files a drag edits.
 
-Runtime state — the tick snapshot, and anything the tooling caches later — lives
-in `<workspace>/.state/`, which `init` gitignores. It is all regenerable, so
-losing it costs nothing.
+Runtime state (the tick snapshot, anything cached later) goes in
+`<workspace>/.state/`, which `init` gitignores. All of it is regenerable.
 
 ## Configuration
 
@@ -163,18 +159,14 @@ losing it costs nothing.
 ```
 
 Any layout works — `apps/web` + `services/api`, `client/` + `server/`. The hook,
-the CLI, the board and every agent brief read these rather than assuming.
-Without this file the plugin stays completely out of the way, so installing it
-does not affect your other repositories.
+the CLI, the board and every agent brief read this file rather than assuming.
+Without it the plugin is inert.
 
-**The workspace defaults inside `.claude/` on purpose.** It stays out of your
-root listing, but stays in the repository: the backlog, the memory files and the
-published API contract describe the code, so they belong in version control
-beside it. Keeping them in the plugin install instead would put every project's
-tasks in one shared directory and lose them on the next plugin upgrade, since
-that path is versioned and re-fetched. If you gitignore `.claude/` wholesale,
-`init` will spot it and offer a negation — otherwise a teammate who clones gets
-no backlog and no memory, and the agents start blind.
+**The workspace sits inside `.claude/` on purpose:** out of your root listing,
+but still in the repo. The backlog, memory files and published contract describe
+the code, so they belong in version control beside it. If you gitignore
+`.claude/` wholesale, `init` catches it and offers a fix — otherwise a teammate
+who clones gets no backlog and the agents start blind.
 
 ## What it creates
 
@@ -197,9 +189,7 @@ both sides. Nothing else — the plugin has no dependencies of its own.
 ## Limits worth knowing
 
 - **Bash is a guard rail, not a jail.** File tools are enforced exactly; shell
-  commands are checked by pattern, and a shell has routes a text check cannot
-  see.
-- **The loop lives in one session.** It stops when that session closes.
-- **The supervisor is the acceptance gate**, and it is only as good as the
-  acceptance criteria written into the task. Vague criteria produce vague
-  acceptance.
+  commands are only pattern-checked, and a shell has routes text can't see.
+- **The loop lives in one session** and stops when that session closes.
+- **Acceptance is only as good as the criteria** written into the task. Vague
+  criteria, vague acceptance.
