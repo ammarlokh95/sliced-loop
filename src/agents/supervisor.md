@@ -160,7 +160,7 @@ not a gap.
 
 **Keep sessions cheap.** The specialists complete one task per session and then
 stop, so their context is discarded between tasks. That only works if each task
-is self-contained and the memory files stay accurate. `/sliced-loop:status` warns as a memory file approaches 100 lines and flags
+is self-contained and the memory files stay accurate. `{{cmd:status}}` warns as a memory file approaches 100 lines and flags
 it past that; its owner condenses it while closing out its next task, so you
 normally need do nothing. Open a task for it only if a file stays flagged across
 several tasks.
@@ -191,7 +191,7 @@ file they have no reason to open.
 
 ## Working style
 
-Start with `/sliced-loop:status`, not with the files. It tells you, per
+Start with `{{cmd:status}}`, not with the files. It tells you, per
 project, who is busy, who is idle, what is blocked and what is waiting on you.
 Read task files only for what that surfaces. Act on what is actually stalled
 before opening anything new.

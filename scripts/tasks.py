@@ -5,6 +5,8 @@
     tasks.py status [--stale-after N]
                                    who is busy, who is idle, what is waiting
     tasks.py research [query]      research notes, filtered by title or slug
+    tasks.py tick quiet|active [--limit N]
+                                   count consecutive idle ticks; says STOP at the limit
 
 `changes` compares the task files against a snapshot and then updates it, so
 each call reports only what is new since the previous call. That keeps a
@@ -86,7 +88,7 @@ def cmd_changes(args: argparse.Namespace) -> int:
 def cmd_status(args: argparse.Namespace) -> int:
     tasks = tasklib.load_tasks()
     if not tasks:
-        print("no tasks yet — /sliced-loop:plan turns a brief into a backlog")
+        print("no tasks yet — the sliced-loop plan command turns a brief into a backlog")
         return 0
 
     for owner in tasklib.OWNERS:
@@ -120,6 +122,9 @@ def cmd_status(args: argparse.Namespace) -> int:
         if stale:
             print(f"{'':9}         re-dispatch it as a resume — do not treat as busy")
         for t in blocked:
+            if (need := tasklib.needs_access(t)):
+                print(f"{'':9}         BLOCKED {t['id']} on access only a human can grant: {need}")
+                continue
             on = ", ".join(t["depends_on"]) or "a question in its thread"
             print(f"{'':9}         BLOCKED {t['id']} on {on}")
 
@@ -128,6 +133,11 @@ def cmd_status(args: argparse.Namespace) -> int:
         if pending:
             ids = ", ".join(f"{t['id']} ({t['priority'] or 'P?'})" for t in pending)
             print(f"supervisor {label}: {ids}")
+
+    human = [t for t in tasks if tasklib.needs_access(t)]
+    if human:
+        print("waiting on a human: " + ", ".join(t["id"] for t in human)
+              + " — grant the access its thread asks for, then say so there")
 
     sizes = tasklib.memory_sizes()
     over = [(n, c) for n, c in sizes if c >= tasklib.COMPACT_AT]
@@ -138,6 +148,20 @@ def cmd_status(args: argparse.Namespace) -> int:
         print(f"{'':9}         its owner condenses it at the end of its next task")
     if near:
         print("memory approaching compaction: " + ", ".join(f"{n} {c} lines" for n, c in near))
+    return 0
+
+
+def cmd_tick(args: argparse.Namespace) -> int:
+    r = tasklib.record_tick(args.kind == "quiet", tasklib.idle_limit(args.limit))
+    if r["stop"]:
+        print(f"idle tick {r['count']} of {r['limit']} — STOP: end the supervision loop")
+    elif r["why"] == "idle":
+        of = f" of {r['limit']}" if r["limit"] else " (no limit)"
+        print(f"idle tick {r['count']}{of}")
+    elif r["why"] == "active":
+        print("active tick — idle count reset")
+    else:
+        print(f"quiet, but not idle ({r['why']}) — idle count reset")
     return 0
 
 
@@ -183,6 +207,13 @@ def main() -> int:
                         help=f"minutes of no activity before a claim reads as abandoned "
                              f"(default {tasklib.STALE_AFTER_MINUTES})")
     status.set_defaults(fn=cmd_status)
+
+    tick = sub.add_parser("tick", help="record a supervision tick; say when the loop should end")
+    tick.add_argument("kind", choices=["quiet", "active"])
+    tick.add_argument("--limit", type=int, metavar="N",
+                      help=f"idle ticks before stopping (default: idle_ticks in config, else "
+                           f"{tasklib.IDLE_TICKS}; 0 = never)")
+    tick.set_defaults(fn=cmd_tick)
 
     research = sub.add_parser("research", help="research notes, filtered")
     research.add_argument("query", nargs="*")

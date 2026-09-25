@@ -11,6 +11,7 @@ and status change passes through here.
 ├── tasks/              one Markdown file per task
 ├── capabilities/       what the backend exposes (backend writes, frontend reads)
 ├── memory/             frontend.md · backend.md · decisions.md
+├── design/             DESIGN.md — where the designs live and how to reach them
 └── research/           findings, with sources
 ```
 
@@ -55,7 +56,7 @@ already knew:
 | `memory/decisions.md` | supervisor | cross-boundary rules both must honour |
 
 Rewritten in place — superseded lines replaced, never stacked. No hard limit:
-keep what a fresh session needs. `/sliced-loop:status` warns at 80 lines and
+keep what a fresh session needs. The `status` command warns at 80 lines and
 flags at 100, and the owning agent then **condenses** the file while closing out
 its next task. Ownership is enforced: neither agent can write the other's.
 
@@ -83,3 +84,23 @@ the human-readable summary. The backend updates both whenever an endpoint lands,
 changes, or is deprecated — part of finishing the task, not a follow-up. The
 frontend reads them as the contract and cannot write here; if something is
 wrong, it opens a `BE-` task.
+
+## Designs and access
+
+`design/DESIGN.md` lists every design source: its link, what it covers, how an
+agent opens it (Figma MCP, the Artifact tool, a web fetch, or an export in
+`design/`), and whether that has been verified. A frontend task that follows a
+design names the exact frame or section in its `## Design` section.
+
+An agent that cannot open a source it needs **does not guess the design**. It
+sets its task `blocked` and appends one thread line saying exactly what is
+missing:
+
+```
+- 2026-09-24 frontend: needs-access: figma checkout-flow — no Figma MCP server in this session; connect one, or export "Cart / mobile" to design/checkout/
+```
+
+Only a human can grant access, so the status command reports these tasks as
+waiting on you. Once access is granted, add a thread line saying so, e.g.
+`- <date> human: access granted — Figma MCP connected`. The supervisor then
+moves the task back to `ready`.

@@ -25,6 +25,13 @@ outcome — not the implementation.
 Only for cross-boundary work. The exact interface: method, path, auth, request
 schema, response schema with field types, status codes, error shape.
 
+## Design
+
+Frontend tasks only, when a design exists. Which entry in `design/DESIGN.md`
+this implements, and the exact frame, page or section, e.g.
+`checkout-flow — "Cart / mobile" (node-id=12-345)`. Leave it out when there is
+no design. The frontend agent then works from the acceptance criteria.
+
 ## Context
 
 Links to other tasks, the capabilities file, prior decisions, constraints.

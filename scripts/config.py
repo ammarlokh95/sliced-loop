@@ -68,11 +68,21 @@ def load(root: Path | None = None) -> dict:
     return data
 
 
+def setting(key: str, default, root: Path | None = None):
+    """A key beyond the three directories, e.g. `idle_ticks` or `headless`."""
+    path = (root or project_root()) / CONFIG_NAME
+    try:
+        value = json.loads(path.read_text(encoding="utf-8")).get(key)
+    except (OSError, ValueError):
+        return default
+    return default if value is None else value
+
+
 def require(root: Path | None = None) -> dict:
     cfg = load(root)
     if not cfg["configured"]:
         raise SystemExit(
-            f"no {CONFIG_NAME} in {cfg['root']} — run /sliced-loop:init to set this project up"
+            f"no {CONFIG_NAME} in {cfg['root']} — run the sliced-loop init command to set this project up"
         )
     return cfg
 

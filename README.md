@@ -57,6 +57,10 @@ was learned carries in a per-agent memory file, condensed by its owner past
 session runs is re-dispatched as a resume. Otherwise one rate limit strands a
 task forever while every tick reports success.
 
+**Designs, or a request for access.** Point it at a Figma file or a Claude
+artifact, and the frontend builds from the frame the task names. If it can't
+open the design, it blocks and asks you for access instead of guessing.
+
 **Any layout.** A config file names your two trees. Without it the plugin is
 inert, so installing it can't disturb your other repos.
 
@@ -64,6 +68,12 @@ inert, so installing it can't disturb your other repos.
 file as a manual override.
 
 ## Install
+
+sliced-loop runs on **Claude Code**, **OpenCode**, **Codex**, **Gemini CLI** and
+**Cursor**. However you install it, it does nothing in a repository until you run
+`init` there, so installing it can't disturb your other repos.
+
+### Claude Code
 
 ```
 /plugin marketplace add ammarlokh95/sliced-loop
@@ -79,39 +89,209 @@ From a local clone instead, point at the folder:
 A local marketplace reads from that path, so don't move the folder while it is
 installed. `/plugin marketplace update sliced-loop` pulls later changes.
 
-Then, in the repository you want it to work on:
+### OpenCode, Codex, Gemini CLI, Cursor
+
+Clone this repo, then install for your harness:
+
+```
+git clone https://github.com/ammarlokh95/sliced-loop
+python3 sliced-loop/scripts/install.py opencode     # or codex, gemini, cursor
+```
+
+That renders the prompts for that harness and puts them where it looks:
+
+| harness | where it goes |
+|---------|---------------|
+| OpenCode | `~/.config/opencode/` — or one repo's `.opencode/` with `--project DIR` |
+| Codex | `~/.codex/` agents, skills and a hook — or one repo with `--project DIR` |
+| Gemini CLI | a linked extension (`gemini extensions link`); it asks you to consent to its hook |
+| Cursor | a local plugin, `~/.cursor/plugins/local/sliced-loop` |
+
+The installed files point at the clone by absolute path. Don't move the clone
+while it is installed, and re-run the install after pulling. The install never
+overwrites a file it didn't create. `--uninstall` removes exactly what it wrote.
+
+**Codex:** use `install.py`, not `codex plugin marketplace add`. Codex will read
+this repo's Claude manifest, but it doesn't load agents from a plugin. After
+installing, approve the scope hook in `/hooks`. Codex skips a hook nobody has
+reviewed, and until you approve it the specialists are unconfined.
+
+### Then, in the repository you want it to work on
+
+Run `init` (the exact command for each harness is under [Usage](#usage)). It
+writes `.sliced-loop.json`, creates the workspace, and asks where your designs
+live (see [Designs](#designs)).
+
+**Restart the harness afterwards.** Agents, hooks and commands are read at
+startup, so the session that installs the plugin can't use it. In Claude Code,
+`claude --continue` keeps the conversation; check it loaded with `/agents` and
+`/hooks`.
+
+## Usage
+
+The workflow is the same everywhere:
+
+1. `init` sets up the repository.
+2. `plan` turns a brief into a backlog covering the whole initial scope.
+3. The loop runs `supervise` on an interval. It ends itself once the project
+   goes idle (see [When the loop stops](#when-the-loop-stops)).
+
+`plan` takes a brief in any of four forms. With no argument it reads
+`<workspace>/PROJECT.md`. If that file is missing, it tells you rather than
+inventing a project. It also takes a Jira story or epic (`ABC-123`), a file
+path, or prose in quotes. A brief you wrote is treated as authoritative: it gets
+structured and sharpened, never quietly narrowed.
+
+Everything else is optional:
+
+| command | what it does |
+|---------|--------------|
+| `status` | who is busy, who is idle, what waits on the supervisor — and on you |
+| `changes` | what moved in the task files since the last check |
+| `board` | drag-and-drop board; a human move outranks the rules |
+| `run` | start both halves, wired to each other |
+| `research` | ask a question, or search what's been answered |
+
+Only the command syntax and the loop differ between harnesses.
+
+### Claude Code
 
 ```
 /sliced-loop:init
-```
-
-**Restart afterwards** — `claude --continue` keeps the conversation. Agents,
-hooks and commands are read at startup, so the session that installs the plugin
-cannot use it. Check it loaded with `/agents` and `/hooks`.
-
-## Use it
-
-```
 /sliced-loop:plan                     # reads PROJECT.md
 /sliced-loop:plan ABC-123             # a Jira story or epic
 /sliced-loop:plan notes/brief.md      # a file
 /sliced-loop:plan "build a ..."       # prose
-/loop 15m /sliced-loop:supervise
+/loop 15m /sliced-loop:supervise      # stops after 5 idle ticks
+/loop 15m /sliced-loop:supervise 10   # ...or after 10; 0 never stops
 ```
 
-`plan` turns a brief into a backlog covering the whole initial scope. With no
-argument it reads `<workspace>/PROJECT.md`; if that file is missing it tells you
-rather than inventing a project. A brief you wrote is treated as authoritative —
-it gets structured and sharpened, never quietly narrowed. `supervise`
-is one tick; the loop runs it on an interval. Everything else is optional:
+The other commands are `/sliced-loop:status`, `/sliced-loop:board` and so on.
+The loop lives in your session. It ends when the session closes, or when it
+reaches its idle limit, at which point it cancels its own `/loop`.
 
-| command | what it does |
-|---------|--------------|
-| `/sliced-loop:status` | who is busy, who is idle, what waits on the supervisor |
-| `/sliced-loop:changes` | what moved in the task files since the last check |
-| `/sliced-loop:board` | drag-and-drop board; a human move outranks the rules |
-| `/sliced-loop:run` | start both halves, wired to each other |
-| `/sliced-loop:research` | ask a question, or search what's been answered |
+### OpenCode
+
+```
+/sliced-loop-init
+/sliced-loop-plan notes/brief.md
+```
+
+Commands are `/sliced-loop-<name>`. OpenCode has no `/loop`, so run the loop
+from a terminal in the repository:
+
+```
+python3 /path/to/sliced-loop/scripts/loop.py --harness opencode --every 15m                  # stops after 5 idle ticks
+python3 /path/to/sliced-loop/scripts/loop.py --harness opencode --every 15m --idle-ticks 10  # ...or after 10; 0 never stops
+```
+
+### Codex
+
+```
+$sliced-loop-init
+$sliced-loop-plan notes/brief.md
+```
+
+The commands are skills, invoked as `$sliced-loop-<name>`. Run the loop from a
+terminal:
+
+```
+python3 /path/to/sliced-loop/scripts/loop.py --harness codex --every 15m                  # stops after 5 idle ticks
+python3 /path/to/sliced-loop/scripts/loop.py --harness codex --every 15m --idle-ticks 10  # ...or after 10; 0 never stops
+```
+
+### Gemini CLI
+
+```
+/sliced-loop:init
+/sliced-loop:plan notes/brief.md
+```
+
+The command names are the same as in Claude Code. Run the loop from a terminal:
+
+```
+python3 /path/to/sliced-loop/scripts/loop.py --harness gemini --every 15m                  # stops after 5 idle ticks
+python3 /path/to/sliced-loop/scripts/loop.py --harness gemini --every 15m --idle-ticks 10  # ...or after 10; 0 never stops
+```
+
+Gemini's hooks can't tell which subagent is acting, so a specialist never runs
+inside your session. Each one runs as its own headless session. It gets its
+brief and one task, runs detached, and logs to `<workspace>/.state/logs/`.
+`research` works the same way: it starts the research session and returns, and
+`/sliced-loop:research` with no argument lists the finding once it is written.
+
+### Cursor
+
+```
+/sliced-loop-init
+/sliced-loop-plan notes/brief.md
+```
+
+Commands are `/sliced-loop-<name>`. Run the loop from a terminal:
+
+```
+python3 /path/to/sliced-loop/scripts/loop.py --harness cursor --every 15m                  # stops after 5 idle ticks
+python3 /path/to/sliced-loop/scripts/loop.py --harness cursor --every 15m --idle-ticks 10  # ...or after 10; 0 never stops
+```
+
+As on Gemini CLI, the specialists and `research` run as separate headless
+sessions (`agent -p`), for the same reason.
+
+### The terminal loop
+
+`loop.py` checks the board itself, which costs no model call. It starts a
+headless `supervise` session only when a tick has something to do: a change, an
+idle agent with ready work, or a dead claim. Ctrl-C stops it, and a running
+tick is allowed to finish.
+
+The headless command it runs for each harness can be overridden in
+`.sliced-loop.json`, for example to pick a model:
+
+```json
+"headless": { "gemini": ["gemini", "--yolo", "-m", "gemini-3-pro", "-p", "{prompt}"] }
+```
+
+### When the loop stops
+
+Every loop ends itself after **5 idle ticks in a row**. A tick is idle when
+nothing changed, no idle agent has ready work, nothing is stale, **and** no
+specialist is mid-task. A long task keeps the loop alive, even if its task file
+doesn't change for an hour. Anything that moves resets the count.
+
+A task waiting on you for access is still idle, so an unanswered access request
+lets the loop wind down instead of ticking all night. Grant it, then start the
+loop again.
+
+To change the limit:
+
+| where | how |
+|-------|-----|
+| one Claude Code loop | a number after the command: `/loop 15m /sliced-loop:supervise 10` |
+| one terminal loop | `loop.py … --idle-ticks 10` |
+| the project's default | `"idle_ticks": 10` in `.sliced-loop.json` |
+
+`0` means never stop. The command line wins over the config, and the config
+wins over the default of 5.
+
+### Designs
+
+If the UI should follow a design, tell `init` where it lives: a Figma file, a
+Claude artifact, or anything else with a link. It's recorded in
+`<workspace>/design/DESIGN.md`, and the supervisor attaches the relevant part to
+each frontend task.
+
+The frontend agent reads a design through whatever access its session has:
+- Figma: a Figma MCP server.
+- A Claude artifact: the Artifact tool in Claude Code.
+- A public page: a web fetch.
+- A file you exported into `<workspace>/design/`.
+
+When a task points at a design it can't open, it **asks for access instead of
+guessing**. It blocks the task with a `needs-access:` line that names exactly
+what it needs. `status` and the loop's tick line report that as waiting on you.
+Connect the server, share the link, or drop an export into `design/`, then note
+in the task's thread that it's done. The supervisor unblocks it on the next
+tick.
 
 ## The moving parts
 
@@ -178,18 +358,25 @@ who clones gets no backlog and the agents start blind.
 ├── tasks/              one Markdown file per task
 ├── capabilities/       the backend's published contract
 ├── memory/             frontend.md · backend.md · decisions.md
+├── design/             DESIGN.md — where the designs live, and how to reach them
 └── research/           findings, with sources
 ```
 
 ## Requirements
 
-Python 3 and `jq` for the tooling; `/sliced-loop:run` additionally assumes npm on
+Python 3 for the tooling. `/sliced-loop:run` also needs `jq`, and assumes npm on
 both sides. Nothing else — the plugin has no dependencies of its own.
 
 ## Limits worth knowing
 
 - **Bash is a guard rail, not a jail.** File tools are enforced exactly; shell
   commands are only pattern-checked, and a shell has routes text can't see.
-- **The loop lives in one session** and stops when that session closes.
+- **The loop lives in one session** and stops when that session closes. That's
+  the Claude session, or the terminal running `loop.py`. It also ends itself
+  after 5 idle ticks.
+- **Headless dispatch doesn't chain.** On Gemini CLI and Cursor, a finished
+  specialist's next task waits for the next tick, not the same one.
+- **Codex and Cursor output is built from their docs.** It hasn't been run
+  against those CLIs yet. The OpenCode and Gemini output loads in their CLIs.
 - **Acceptance is only as good as the criteria** written into the task. Vague
   criteria, vague acceptance.

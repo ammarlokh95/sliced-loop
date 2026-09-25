@@ -9,8 +9,8 @@ a single line.
 ## 1. Look
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/tasks.py" changes
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/tasks.py" status
+python3 "{{scripts}}/tasks.py" changes
+python3 "{{scripts}}/tasks.py" status
 ```
 
 `changes` reports only what is new since the previous tick and then advances its
@@ -21,11 +21,12 @@ snapshot, so anything it prints is genuinely new.
 If `changes` says `no changes` **and** `status` shows no idle agent with a ready
 task waiting **and** nothing `STALE`, there is nothing to do. Say so in one line
 and end the tick. Do not spawn anything, do not read task files, do not narrate.
+<!-- if:claude -->
 
-First record the quiet tick. If `$ARGUMENTS` is a number, pass it as the limit:
+First record the quiet tick. If `{{args}}` is a number, pass it as the limit:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/tasks.py" tick quiet            # or: tick quiet --limit <N>
+python3 "{{scripts}}/tasks.py" tick quiet            # or: tick quiet --limit <N>
 ```
 
 It counts consecutive idle ticks and puts the count in your one line, e.g.
@@ -42,8 +43,9 @@ line that the loop stopped after that many idle ticks, and that this starts it
 again:
 
 ```
-/loop 15m /sliced-loop:supervise
+{{loop}}
 ```
+<!-- endif -->
 
 Quiet ticks are the normal case. Keeping them near-free is what lets this run
 all day.
@@ -82,7 +84,7 @@ criterion it has not verified itself.
 
 ## 4. Review the changes
 
-If anything changed, spawn the `supervisor` agent with the exact output of both
+If anything changed, {{spawn:supervisor}} with the exact output of both
 commands, and ask it to:
 
 - accept `review` → `done` against the acceptance criteria, triage `proposed` →
@@ -105,9 +107,35 @@ and dispatches nothing is a normal tick.
 
 ## 5. Wake the agents it named
 
+<!-- if:inproc -->
 Spawn each named agent with its task ID and a reminder to follow the session
 loop in its brief: read its memory file, claim the task, complete it, update
 memory, report, and stop.
+<!-- endif -->
+<!-- if:opencode -->
+Use the task tool with `subagent_type` set to the agent's name — the scope
+plugin identifies the agent from that.
+<!-- endif -->
+<!-- if:codex -->
+Use `spawn_agent` with `agent_type` set to the agent's name — the scope hook
+identifies the agent from that, and a generic agent would go unconfined.
+<!-- endif -->
+<!-- if:headless -->
+This harness cannot tell a hook which subagent is acting, so a specialist must
+not run as a subagent of this session — its scope would go unenforced. Each one
+runs as its own headless session, which the scope hook recognises. Start each
+named agent with:
+
+```bash
+python3 "{{scripts}}/dispatch.py" --harness {{harness}} <agent> <task-id>
+python3 "{{scripts}}/dispatch.py" --harness {{harness}} <agent> <task-id> --resume "<resume brief>"   # a STALE recovery
+```
+
+It returns at once: the session runs detached, logging to
+`<workspace>/.state/logs/`, and follows the session loop in its brief — read its
+memory file, claim the task, complete it, update memory, report, and stop.
+`dispatch.py` refuses an agent that already has a session running.
+<!-- endif -->
 
 - **Never wake an agent reported `BUSY`** — it is mid-task and a second session
   on the same tree would collide. `STALE` is not `BUSY`.
@@ -117,6 +145,7 @@ memory, report, and stop.
 - Run both dispatches concurrently when both are named — different trees do not
   collide.
 
+<!-- if:inproc -->
 ## 6. Keep going while there is work
 
 When an agent returns and more work of its own is `ready`, dispatch a fresh
@@ -127,6 +156,14 @@ Stop dispatching within a tick when any of these is true: **six agent sessions**
 have run, nothing is `ready` for an idle agent, or something needs the
 supervisor's judgment again (a task hit `review` or `blocked`, or a new
 `proposed` task appeared).
+<!-- endif -->
+<!-- if:headless -->
+## 6. Leave the rest to the next tick
+
+Detached sessions do not return to this one, so there is no chaining within a
+tick: when an agent finishes, its task moves, and the next tick sees the change
+and dispatches what comes after it.
+<!-- endif -->
 
 ## 7. Report
 
@@ -135,9 +172,11 @@ what. If `status` lists anything **waiting on a human**, a task blocked on acces
 only a human can grant, add a second line naming it and what it needs. That is
 the one thing a tick can't do for itself. If nothing happened: "no changes, both agents idle with nothing ready".
 Keep it terse — this line lands in your own context on every tick.
+<!-- if:claude -->
 
 A tick that got this far did something, so reset the idle count:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/tasks.py" tick active
+python3 "{{scripts}}/tasks.py" tick active
 ```
+<!-- endif -->
