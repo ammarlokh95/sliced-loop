@@ -299,10 +299,12 @@ def build_gemini(root: Path) -> dict[Path, str]:
 def build_cursor(root: Path) -> dict[Path, str]:
     out: dict[Path, str] = {}
     base = DIST / "cursor"
-    version = json.loads((PLUGIN_ROOT / ".claude-plugin" / "plugin.json").read_text())["version"]
-    manifest = {"name": PREFIX, "version": version,
+    claude_manifest = json.loads((PLUGIN_ROOT / ".claude-plugin" / "plugin.json").read_text())
+    manifest = {"name": PREFIX, "version": claude_manifest["version"],
                 "description": "Two specialist agents build one app from opposite sides of an API contract.",
                 "license": "MIT"}
+    if "author" in claude_manifest:
+        manifest["author"] = claude_manifest["author"]
     _write(out, base / ".cursor-plugin" / "plugin.json", json.dumps(manifest, indent=2))
     # As with Gemini: Cursor's per-tool hooks do not say which subagent acts.
     _, f, _ = split(SRC / "agents" / "supervisor.md")
