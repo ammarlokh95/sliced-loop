@@ -52,7 +52,7 @@ Do not survey the tree. Do not read `frontend.md` unless the task is a contract
 question. A broad read at the start is the most common way a session runs out of
 room before it finishes.
 
-**At the end of a task**, before you report: update `memory/frontend.md` so the
+**At the end of a task**, before you report: update `memory/backend.md` so the
 next session does not have to rediscover what you just learned. Record what
 would have saved *you* time an hour ago — a layout landmark, a convention, a
 decision and its reason, a trap. Not a changelog: the task file and the thread
@@ -188,7 +188,7 @@ task is what keeps this project able to run for a long time.
    `capabilities/` is part of completing it, not a follow-up.
 4. **Close it out.** Tick the criteria, set `status: review`, bump `updated:`,
    and note in the thread what you did and what you verified.
-5. **Update memory.** `memory/frontend.md`, per the rules above. This is not
+5. **Update memory.** `memory/backend.md`, per the rules above. This is not
    optional — it is the handover to your next session.
 6. **Report and stop.** Five lines at most: what you changed, what you verified,
    what you are waiting on, and whether another task of yours is `ready`. Then
