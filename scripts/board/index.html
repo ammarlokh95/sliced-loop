@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Task board</title>
+<style>
+  :root {
+    --bg: #f6f7f9;        --panel: #ffffff;     --sunk: #eceef2;
+    --ink: #14161a;       --dim: #5b6472;       --faint: #8a93a3;
+    --line: #dfe3ea;      --shadow: 0 1px 2px rgba(16,20,28,.06), 0 4px 12px rgba(16,20,28,.05);
+    --accent: #3b62d9;
+    --proposed: #8a93a3;  --ready: #3b62d9;     --in-progress: #7a4ad6;
+    --blocked: #c2661a;   --review: #128a7d;    --done: #2f8f4e;
+    --fe: #3b62d9;        --be: #b0721f;
+    --p0: #c8372d;        --p1: #c2661a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1216;      --panel: #171b21;     --sunk: #12161b;
+      --ink: #e8ecf2;     --dim: #98a2b3;       --faint: #6b7686;
+      --line: #252b34;    --shadow: 0 1px 2px rgba(0,0,0,.4);
+      --accent: #7b9bff;
+      --proposed: #6b7686; --ready: #7b9bff;    --in-progress: #b18cf0;
+      --blocked: #e0913f;  --review: #3bbcae;   --done: #57c07a;
+      --fe: #7b9bff;       --be: #e0b155;
+      --p0: #ef6a5f;       --p1: #e0913f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  header {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
+    position: sticky; top: 0; z-index: 5;
+  }
+  h1 { font-size: 15px; font-weight: 600; letter-spacing: -.01em; margin: 0; }
+  .count { color: var(--faint); font-variant-numeric: tabular-nums; }
+  .spacer { flex: 1; }
+  .filters { display: flex; gap: 4px; background: var(--sunk); padding: 3px; border-radius: 8px; }
+  .filters button {
+    font: inherit; font-size: 13px; color: var(--dim); background: none;
+    border: 0; padding: 4px 11px; border-radius: 6px; cursor: pointer;
+  }
+  .filters button[aria-pressed="true"] { background: var(--panel); color: var(--ink); box-shadow: var(--shadow); }
+  .pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--done); opacity: .25; transition: opacity .2s; }
+  .pulse.on { opacity: 1; }
+
+  .board { display: flex; gap: 12px; padding: 16px 20px 28px; overflow-x: auto; align-items: flex-start; }
+  .col { flex: 0 0 272px; background: var(--sunk); border-radius: 12px; padding: 10px; border: 1px solid transparent; }
+  .col.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, var(--sunk)); }
+  .col > h2 {
+    display: flex; align-items: center; gap: 7px; margin: 2px 4px 10px;
+    font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--dim);
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--s); flex: none; }
+  .col > h2 .n { margin-left: auto; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .stack { display: flex; flex-direction: column; gap: 8px; min-height: 40px; }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--s);
+    border-radius: 9px; padding: 10px 11px; cursor: grab; box-shadow: var(--shadow);
+    transition: transform .08s ease, box-shadow .12s ease;
+  }
+  .card:hover { transform: translateY(-1px); }
+  .card:active { cursor: grabbing; }
+  .card.dragging { opacity: .4; }
+  .card .top { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; }
+  .id { font: 600 11px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .02em; color: var(--o); }
+  .prio { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--faint); }
+  .prio.P0 { color: var(--p0); } .prio.P1 { color: var(--p1); }
+  .title { font-size: 13.5px; line-height: 1.35; }
+  .meta { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; font-size: 11px; color: var(--faint); }
+  .tag { border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
+  .tag.dep { color: var(--blocked); border-color: color-mix(in srgb, var(--blocked) 35%, var(--line)); }
+  .empty { color: var(--faint); font-size: 12px; text-align: center; padding: 14px 0; }
+  .proj {
+    font-size: 10.5px; letter-spacing: .03em; text-transform: uppercase;
+    color: var(--faint); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px;
+  }
+  select {
+    font: inherit; font-size: 13px; color: var(--ink); background: var(--sunk);
+    border: 1px solid var(--line); border-radius: 8px; padding: 5px 9px; cursor: pointer;
+  }
+
+  .blank { padding: 56px 20px; text-align: center; color: var(--dim); }
+  .blank code { background: var(--sunk); padding: 2px 6px; border-radius: 5px; font-size: 12.5px; }
+
+  .scrim { position: fixed; inset: 0; background: rgba(8,10,14,.35); opacity: 0; pointer-events: none; transition: opacity .15s; z-index: 9; }
+  .scrim.on { opacity: 1; pointer-events: auto; }
+  .drawer {
+    position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100%);
+    background: var(--panel); border-left: 1px solid var(--line); z-index: 10;
+    transform: translateX(100%); transition: transform .18s cubic-bezier(.3,.7,.3,1);
+    display: flex; flex-direction: column;
+  }
+  .drawer.on { transform: none; }
+  .drawer header { position: static; border-bottom: 1px solid var(--line); }
+  .drawer .close { font: inherit; background: none; border: 0; color: var(--dim); cursor: pointer; font-size: 20px; line-height: 1; padding: 2px 6px; }
+  .doc { overflow-y: auto; padding: 18px 22px 40px; }
+  .doc h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--dim); margin: 22px 0 8px; }
+  .doc h2:first-child { margin-top: 0; }
+  .doc ul { margin: 0 0 10px; padding-left: 20px; }
+  .doc li { margin: 3px 0; }
+  .doc p { margin: 0 0 10px; }
+  .doc code { background: var(--sunk); padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+  .doc pre { background: var(--sunk); padding: 11px 13px; border-radius: 8px; overflow-x: auto; font-size: 12.5px; }
+  .doc .done-box { color: var(--done); }
+  .doc .thread li { color: var(--dim); font-size: 13px; }
+  .fields { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 12.5px; margin-bottom: 4px; }
+  .fields dt { color: var(--faint); }
+  .fields dd { margin: 0; }
+
+  .toast {
+    position: fixed; bottom: 18px; left: 50%; transform: translate(-50%, 12px);
+    background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px;
+    font-size: 13px; opacity: 0; pointer-events: none; transition: opacity .15s, transform .15s; z-index: 20;
+  }
+  .toast.on { opacity: 1; transform: translate(-50%, 0); }
+  .toast.bad { background: var(--p0); color: #fff; }
+
+  @media (max-width: 700px) { .board { padding: 12px; } .col { flex-basis: 84vw; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Task board</h1>
+  <span class="count" id="count"></span>
+  <span class="spacer"></span>
+  <div class="filters" id="filters">
+    <button data-owner="" aria-pressed="true">All</button>
+    <button data-owner="frontend" aria-pressed="false">Frontend</button>
+    <button data-owner="backend" aria-pressed="false">Backend</button>
+  </div>
+  <span class="pulse" id="pulse" title="synced"></span>
+</header>
+
+<div class="board" id="board"></div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <header>
+    <span class="id" id="d-id"></span>
+    <strong id="d-title" style="font-weight:600"></strong>
+    <span class="spacer"></span>
+    <button class="close" id="d-close" aria-label="Close">×</button>
+  </header>
+  <div class="doc" id="d-doc"></div>
+</aside>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const STATUS_LABEL = {
+  "proposed": "Proposed", "ready": "Ready", "in-progress": "In progress",
+  "blocked": "Blocked", "review": "Review", "done": "Done",
+};
+
+let state = { statuses: [], tasks: [] };
+let ownerFilter = "";
+let dragging = null;
+let openKey = null;
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const ownerVar = (o) => (o === "backend" ? "var(--be)" : "var(--fe)");
+const keyOf = (t) => t.id;
+
+async function load() {
+  const res = await fetch("/api/tasks");
+  state = await res.json();
+  render();
+  $("pulse").classList.add("on");
+  setTimeout(() => $("pulse").classList.remove("on"), 400);
+}
+
+function visible() {
+  return state.tasks.filter((t) => !ownerFilter || t.owner === ownerFilter);
+}
+
+function render() {
+  const board = $("board");
+  const shown = visible();
+  $("count").textContent = shown.length ? `${shown.length} task${shown.length === 1 ? "" : "s"}` : "";
+
+  if (!state.tasks.length) {
+    board.innerHTML = `<div class="blank">
+      No tasks yet. Run <code>/sliced-loop:plan</code> to turn a brief into a backlog.
+    </div>`;
+    return;
+  }
+
+  board.innerHTML = state.statuses.map((status) => {
+    const items = shown.filter((t) => t.status === status);
+    return `<section class="col" data-status="${status}" style="--s: var(--${status})">
+      <h2><span class="dot"></span>${STATUS_LABEL[status] || status}<span class="n">${items.length}</span></h2>
+      <div class="stack">${items.map(card).join("") || '<div class="empty">—</div>'}</div>
+    </section>`;
+  }).join("");
+
+  board.querySelectorAll(".card").forEach(wireCard);
+  board.querySelectorAll(".col").forEach(wireColumn);
+  if (openKey) renderDrawer(openKey);
+}
+
+function card(t) {
+  const deps = (t.depends_on || []).map((d) => `<span class="tag dep">needs ${esc(d)}</span>`).join("");
+  return `<article class="card" draggable="true" data-key="${esc(keyOf(t))}"
+            style="--s: var(--${t.status}); --o: ${ownerVar(t.owner)}">
+    <div class="top">
+      <span class="id">${esc(t.id)}</span>
+      ${t.priority ? `<span class="prio ${esc(t.priority)}">${esc(t.priority)}</span>` : ""}
+    </div>
+    <div class="title">${esc(t.title)}</div>
+    <div class="meta">
+      ${t.owner ? `<span class="tag">${esc(t.owner)}</span>` : ""}
+      ${deps}
+      ${t.updated ? `<span>${esc(t.updated)}</span>` : ""}
+    </div>
+  </article>`;
+}
+
+function wireCard(el) {
+  el.addEventListener("dragstart", (e) => {
+    dragging = el.dataset.key;
+    el.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", dragging);
+  });
+  el.addEventListener("dragend", () => { dragging = null; el.classList.remove("dragging"); });
+  el.addEventListener("click", () => openDrawer(el.dataset.key));
+}
+
+function wireColumn(col) {
+  col.addEventListener("dragover", (e) => { e.preventDefault(); col.classList.add("over"); });
+  col.addEventListener("dragleave", () => col.classList.remove("over"));
+  col.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    col.classList.remove("over");
+    const key = e.dataTransfer.getData("text/plain") || dragging;
+    const status = col.dataset.status;
+    if (!key) return;
+
+    const task = state.tasks.find((t) => keyOf(t) === key);
+    if (!task || task.status === status) return;
+
+    const before = task.status;
+    task.status = status;           // optimistic
+    render();
+
+    try {
+      const res = await fetch("/api/move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: task.id, status }),
+      });
+      const out = await res.json();
+      if (!out.ok) throw new Error(out.error || "move failed");
+      toast(`${key} → ${STATUS_LABEL[status]}`);
+      load();
+    } catch (err) {
+      task.status = before;         // roll back
+      render();
+      toast(err.message, true);
+    }
+  });
+}
+
+// --- drawer ---------------------------------------------------------------
+
+function openDrawer(key) {
+  openKey = key;
+  renderDrawer(key);
+  $("drawer").classList.add("on");
+  $("drawer").setAttribute("aria-hidden", "false");
+  $("scrim").classList.add("on");
+}
+
+function closeDrawer() {
+  openKey = null;
+  $("drawer").classList.remove("on");
+  $("drawer").setAttribute("aria-hidden", "true");
+  $("scrim").classList.remove("on");
+}
+
+function renderDrawer(key) {
+  const t = state.tasks.find((x) => keyOf(x) === key);
+  if (!t) return closeDrawer();
+  $("d-id").textContent = t.id;
+  $("d-id").style.setProperty("--o", ownerVar(t.owner));
+  $("d-title").textContent = t.title;
+  $("d-doc").innerHTML = `
+    <dl class="fields">
+      <dt>Status</dt><dd>${STATUS_LABEL[t.status] || t.status}</dd>
+      <dt>Owner</dt><dd>${esc(t.owner || "—")}</dd>
+      <dt>Priority</dt><dd>${esc(t.priority || "—")}</dd>
+      ${t.requested_by ? `<dt>Requested by</dt><dd>${esc(t.requested_by)}</dd>` : ""}
+      ${t.depends_on?.length ? `<dt>Depends on</dt><dd>${t.depends_on.map(esc).join(", ")}</dd>` : ""}
+      <dt>File</dt><dd><code>tasks/${esc(t.file)}</code></dd>
+      <dt>Updated</dt><dd>${esc(t.updated || "—")}</dd>
+    </dl>
+    ${markdown(t.body)}`;
+}
+
+/** Deliberately small: headings, lists, checkboxes, code, bold. */
+function markdown(src) {
+  const out = [];
+  let list = null, fence = null, thread = false;
+
+  const closeList = () => { if (list) { out.push(`</ul>`); list = null; } };
+
+  for (const raw of (src || "").split("\n")) {
+    if (raw.trim().startsWith("```")) {
+      if (fence === null) { closeList(); fence = []; }
+      else { out.push(`<pre><code>${esc(fence.join("\n"))}</code></pre>`); fence = null; }
+      continue;
+    }
+    if (fence !== null) { fence.push(raw); continue; }
+
+    const h = raw.match(/^##\s+(.*)$/);
+    if (h) {
+      closeList();
+      thread = /thread/i.test(h[1]);
+      out.push(`<h2>${esc(h[1])}</h2>`);
+      continue;
+    }
+
+    const li = raw.match(/^\s*-\s+(.*)$/);
+    if (li) {
+      if (!list) { out.push(`<ul class="${thread ? "thread" : ""}">`); list = true; }
+      const box = li[1].match(/^\[([ xX])\]\s*(.*)$/);
+      out.push(box
+        ? `<li class="${box[1] === " " ? "" : "done-box"}">${box[1] === " " ? "☐" : "☑"} ${inline(box[2])}</li>`
+        : `<li>${inline(li[1])}</li>`);
+      continue;
+    }
+
+    if (!raw.trim()) { closeList(); continue; }
+    closeList();
+    out.push(`<p>${inline(raw)}</p>`);
+  }
+  closeList();
+  return out.join("");
+}
+
+function inline(s) {
+  return esc(s)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+}
+
+function toast(msg, bad = false) {
+  const el = $("toast");
+  el.textContent = msg;
+  el.classList.toggle("bad", bad);
+  el.classList.add("on");
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove("on"), 2200);
+}
+
+// --- wiring ---------------------------------------------------------------
+
+$("filters").addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  ownerFilter = btn.dataset.owner;
+  [...$("filters").children].forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
+  render();
+});
+$("d-close").addEventListener("click", closeDrawer);
+$("scrim").addEventListener("click", closeDrawer);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+
+load();
+setInterval(() => { if (!dragging) load(); }, 5000);
+</script>
+</body>
+</html>

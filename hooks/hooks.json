@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Edit|Write|Glob|Grep|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/agent-scope.sh\"",
+            "timeout": 10,
+            "statusMessage": "Checking agent scope"
+          }
+        ]
+      }
+    ]
+  }
+}

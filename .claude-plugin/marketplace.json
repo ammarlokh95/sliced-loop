@@ -1,0 +1,17 @@
+{
+  "name": "sliced-loop",
+  "owner": { "name": "sliced-loop" },
+  "metadata": {
+    "description": "Two specialist agents build one app from opposite sides of an API contract, never reading each other's code.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "sliced-loop",
+      "source": "./",
+      "description": "A supervisor cuts the scope into vertical slices, dispatches one task per agent session, and accepts the work. The frontend and backend agents are confined to their own trees by an enforced hook and coordinate only through a published API contract.",
+      "category": "workflow",
+      "tags": ["agents", "workflow", "full-stack", "supervisor", "vertical-slice", "contract-first"]
+    }
+  ]
+}
