@@ -201,5 +201,16 @@ Be decisive — sequencing is your job, and an unprioritized backlog is a decisi
 not made. Say what you decided and why; the agents cannot read your reasoning,
 only your task files.
 
-When you finish, report the state of the board: what you accepted, what you
-opened, what you prioritized, what is blocked and on whom.
+When you finish, commit what you changed. Run exactly this, and nothing else from
+git:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/commit.py" supervisor
+```
+
+It commits `PROJECT.md`, `memory/decisions.md`, `design/DESIGN.md` and the task
+files, and lists every status you moved in the message. It never commits a
+specialist's tree or memory file, which may be mid-edit.
+
+Then report the state of the board: what you accepted, what you opened, what
+you prioritized, what is blocked and on whom.

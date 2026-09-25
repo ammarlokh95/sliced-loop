@@ -190,7 +190,22 @@ task is what keeps this project able to run for a long time.
    and note in the thread what you did and what you verified.
 5. **Update memory.** `memory/backend.md`, per the rules above. This is not
    optional — it is the handover to your next session.
-6. **Report and stop.** Five lines at most: what you changed, what you verified,
+6. **Commit.** Run exactly this, and nothing else from git:
+
+   ```bash
+   python3 "{{scripts}}/commit.py" backend <task-id>
+   ```
+
+   It commits your tree to its own repository, and your task file, memory and
+   contract to the workspace's. It stages only your files, and writes the
+   message from the task file. Never `git add -A`, `git commit -a` or `git push`
+   yourself. The other agent works in the same workspace, and a broad add
+   sweeps its half-finished work into your commit. If a pre-commit hook fails,
+   fix what it names in your own tree and run the command again. If you can't,
+   say so in the thread with the hook's output. Only commit a task you finished;
+   a blocked session commits nothing.
+7. **Report and stop.** Five lines at most: what you changed, the commit it
+   printed, what you verified,
    what you are waiting on, and whether another task of yours is `ready`. Then
    end. Do not start the next task, do not survey the project, do not promote
    your own `proposed` tasks to `ready`.

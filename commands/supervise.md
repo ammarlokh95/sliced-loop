@@ -107,7 +107,7 @@ and dispatches nothing is a normal tick.
 
 Spawn each named agent with its task ID and a reminder to follow the session
 loop in its brief: read its memory file, claim the task, complete it, update
-memory, report, and stop.
+memory, commit, report, and stop.
 
 - **Never wake an agent reported `BUSY`** — it is mid-task and a second session
   on the same tree would collide. `STALE` is not `BUSY`.

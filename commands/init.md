@@ -81,7 +81,46 @@ decide this for them: `PROJECT.md` is the one file in the workspace a person
 is likely to have authored by hand, and it is the input `/sliced-loop:plan`
 reads.
 
-## 4. Make sure the workspace is actually tracked
+## 4. Give each tree its own repository
+
+The frontend and backend each get their own git repository. Each agent then
+commits its code where nothing else writes, and the two histories stay as
+separate as the two trees. The project root keeps a repository too, for
+`.sliced-loop.json` and the workspace, and ignores the two trees.
+
+See where things stand first:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/repos.py" status
+```
+
+Then create what is missing:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/repos.py" init
+```
+
+It creates the root repository if there is none. A project inside a larger
+repository keeps using that one. It gives each tree its own repository with an
+initial commit of what is already there, and adds both trees to the root
+`.gitignore`. It leaves alone a tree that already has its own repository.
+
+**A tree the root repository already tracks is not split without asking.** That
+is an existing monorepo. Splitting it removes the tree from the root
+repository's index. Its history stays in the root repository, and the new one
+starts from today. `init` reports this and stops. Explain it to the user and
+offer both choices:
+
+- **Split it:** run `repos.py init --split-tracked`, then commit the removal in
+  the root repository.
+- **Keep one repository:** do nothing. Agents still commit only their own
+  files; they just share the one repository.
+
+Don't choose for them. Also mention that agents commit their own work when they
+finish each task, and that `"commit": false` in `.sliced-loop.json` turns that
+off. Nothing is ever pushed.
+
+## 5. Make sure the workspace is actually tracked
 
 The workspace defaults to `.claude/sliced-loop/`, which keeps it out of the root
 listing while leaving it in the repository — the backlog, the memory files and
@@ -122,7 +161,7 @@ git check-ignore -q .claude/sliced-loop/.state/x.json   && echo ".state ignored,
 Add `<workspace>/.state/` to `.gitignore` regardless — it holds the tick
 snapshot, which is local state, not project data.
 
-## 5. Ask where the designs live
+## 6. Ask where the designs live
 
 Ask the user whether the UI should follow an existing design, and where it is:
 a Figma file, a Claude artifact, a page on the web, image or HTML exports, or
@@ -150,7 +189,7 @@ Access granted after a restart counts. Setup doesn't wait on it: a frontend task
 that needs a design it can't open blocks and asks for the design, instead of
 guessing.
 
-## 6. Tell the user what happens next
+## 7. Tell the user what happens next
 
 - `/sliced-loop:plan` turns a brief into a backlog of vertical slices
 - `/loop 15m /sliced-loop:supervise` starts the supervision loop, which ends itself after 5 idle ticks

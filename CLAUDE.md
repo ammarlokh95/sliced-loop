@@ -51,6 +51,17 @@ The mode is set per harness in `build.HARNESSES`, and the whole design rests on 
 - File tools are checked exactly, against the resolved real path. Codex `apply_patch` is checked per file named in the patch.
 - Shell commands are checked only by a regex on the command text. It's a guard rail, not a jail.
 
+### Repositories and commits
+
+- `scripts/repos.py init` (run by `init`) gives each tree its own git repository and adds both to the root `.gitignore`.
+  - The root repository holds the config and the workspace. It's created only if the project isn't in a repository at all.
+  - It never splits a tree the root repository already tracks unless given `--split-tracked`, which `init` must ask the user about first.
+- Agents commit only through `scripts/commit.py <agent> [task-id]`. It builds an explicit file list of what the agent owns, groups it by the repository holding each file, and commits each group with `git commit --only -- <files>`.
+  - That's what keeps concurrent agents out of each other's commits in the shared workspace repository. Don't replace it with `git add -A`/`-a`.
+  - It retries on git lock errors (`LOCK_ERRORS`). Concurrent commits to one repository really do hit `cannot lock ref 'HEAD'`.
+  - The message comes from the task file, never the command line. An agent-supplied message could contain the other tree's directory name and trip the shell scope check.
+  - It never pushes. `"commit": false` in config disables it.
+
 ### Ending the loop on idle
 
 - `tasklib.record_tick()` counts consecutive idle ticks in `.state/idle.json`, and `tasks.py tick quiet|active [--limit N]` is its command-line form.
@@ -93,6 +104,8 @@ python3 scripts/install.py <harness> [--project DIR] [--uninstall]
 python3 scripts/dispatch.py --harness H <agent> <task-id> [--resume BRIEF] [--wait]
 python3 scripts/loop.py --harness H [--every 15m] [--idle-ticks N] [--once]
 python3 scripts/tasks.py tick quiet|active [--limit N]   # the idle counter both loops use
+python3 scripts/repos.py status|init [--split-tracked]     # one repository per tree
+python3 scripts/commit.py <agent> [task-id] [--dry-run]    # commit only that agent's files
 ```
 
 These run against whatever project `CLAUDE_PROJECT_DIR` or the cwd resolves to. To exercise them, run them from a scratch repo that has a `.sliced-loop.json` and a workspace. Running them from this repo resolves to the defaults, and no workspace exists here.

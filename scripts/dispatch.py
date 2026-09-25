@@ -98,11 +98,12 @@ def prompt_for(harness: str, agent: str, task: str | None, resume: str | None,
                      f"> {question}\n\n"
                      "Follow your brief: cite sources, argue the other side, say where the evidence "
                      "is thin, and write the finding to the workspace's `research/` directory. "
-                     "Then stop.")
+                     "Commit it with the command your brief gives, then stop.")
     else:
         parts.append(f"Your task: `{task}`.\n\n"
                      "Follow the session loop in your brief: read your memory file, claim the task, "
-                     "complete it, update your memory file, report in five lines, and stop. "
+                     "complete it, update your memory file, commit with the command your brief gives, "
+                     "report in five lines, and stop. "
                      "One task only — this session ends when it is done.")
     if resume:
         parts.append("\n**This is a resume.** Your own earlier session on this task was killed "

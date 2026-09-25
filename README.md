@@ -49,6 +49,10 @@ not guessed.
 specialists decide how. It can reject a task as not worth doing — not an
 implementation it would have written differently.
 
+**A commit per task.** Each agent commits its own work when it finishes a task:
+code to its tree's own repository, and workspace files to the root's. A commit
+never carries another agent's files. Nothing is pushed.
+
 **One task per session.** Ending the session is what discards the context. What
 was learned carries in a per-agent memory file, condensed by its owner past
 ~100 lines.
@@ -119,8 +123,10 @@ reviewed, and until you approve it the specialists are unconfined.
 ### Then, in the repository you want it to work on
 
 Run `init` (the exact command for each harness is under [Usage](#usage)). It
-writes `.sliced-loop.json`, creates the workspace, and asks where your designs
-live (see [Designs](#designs)).
+writes `.sliced-loop.json`, creates the workspace, gives the frontend and
+backend their own git repositories (see [Repositories and
+commits](#repositories-and-commits)), and asks where your designs live (see
+[Designs](#designs)).
 
 **Restart the harness afterwards.** Agents, hooks and commands are read at
 startup, so the session that installs the plugin can't use it. In Claude Code,
@@ -338,6 +344,10 @@ Runtime state (the tick snapshot, anything cached later) goes in
 }
 ```
 
+Optional keys: `idle_ticks` (see [When the loop stops](#when-the-loop-stops)),
+`commit: false` to stop agents committing, and `headless` (see [The terminal
+loop](#the-terminal-loop)).
+
 Any layout works — `apps/web` + `services/api`, `client/` + `server/`. The hook,
 the CLI, the board and every agent brief read this file rather than assuming.
 Without it the plugin is inert.
@@ -347,6 +357,37 @@ but still in the repo. The backlog, memory files and published contract describe
 the code, so they belong in version control beside it. If you gitignore
 `.claude/` wholesale, `init` catches it and offers a fix — otherwise a teammate
 who clones gets no backlog and the agents start blind.
+
+## Repositories and commits
+
+`init` sets up three repositories:
+
+```
+<root>/            repository — .sliced-loop.json and the workspace
+├── <frontend>/    its own repository, ignored by the root one
+└── <backend>/     its own repository, ignored by the root one
+```
+
+Each agent commits when it finishes a task, through `scripts/commit.py`. Its
+code goes to its tree's repository, where nothing else writes. Its task file,
+memory and contract or design exports go to the root repository. The message
+is built from the task: the subject is `FE-004: <title>`, and the body gives
+the status change and the agent's closing thread line. The research and
+supervisor agents commit their workspace files the same way.
+
+`commit.py` stages an explicit list of the agent's own files, never `git add
+-A`. The workspace is shared, and agents run concurrently. It retries if another
+agent holds git's lock, and runs pre-commit hooks rather than skipping them.
+Nothing is ever pushed.
+
+A few cases differ:
+- **An existing monorepo.** If the root repository already tracks a tree,
+  `init` asks before splitting it out. Splitting removes the tree from the root
+  repository's index, and the new repository starts fresh. If you'd rather keep
+  one repository, agents still commit only their own files in it.
+- **A project inside a larger repository.** It uses that repository for the
+  workspace.
+- **Turning commits off.** Set `"commit": false` in `.sliced-loop.json`.
 
 ## What it creates
 
