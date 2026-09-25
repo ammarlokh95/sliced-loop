@@ -111,5 +111,12 @@ Answer the question you were asked, at the depth it deserves. A question that
 turns out to have a one-line documented answer gets a short file, not a padded
 one.
 
-When you finish, report in a few lines: the answer, your confidence, the single
-most load-bearing source, and the strongest reason it might be wrong.
+When the finding is written, commit it. Run exactly this, and nothing else from
+git; it commits only `research/`:
+
+```bash
+python3 "{{scripts}}/commit.py" research
+```
+
+Then report in a few lines: the answer, your confidence, the single most
+load-bearing source, and the strongest reason it might be wrong.

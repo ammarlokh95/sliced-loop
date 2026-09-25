@@ -110,7 +110,7 @@ and dispatches nothing is a normal tick.
 <!-- if:inproc -->
 Spawn each named agent with its task ID and a reminder to follow the session
 loop in its brief: read its memory file, claim the task, complete it, update
-memory, report, and stop.
+memory, commit, report, and stop.
 <!-- endif -->
 <!-- if:opencode -->
 Use the task tool with `subagent_type` set to the agent's name — the scope
@@ -133,8 +133,8 @@ python3 "{{scripts}}/dispatch.py" --harness {{harness}} <agent> <task-id> --resu
 
 It returns at once: the session runs detached, logging to
 `<workspace>/.state/logs/`, and follows the session loop in its brief — read its
-memory file, claim the task, complete it, update memory, report, and stop.
-`dispatch.py` refuses an agent that already has a session running.
+memory file, claim the task, complete it, update memory, commit, report, and
+stop. `dispatch.py` refuses an agent that already has a session running.
 <!-- endif -->
 
 - **Never wake an agent reported `BUSY`** — it is mid-task and a second session
