@@ -3,7 +3,7 @@
   "owner": { "name": "sliced-loop" },
   "metadata": {
     "description": "Two specialist agents build one app from opposite sides of an API contract, never reading each other's code.",
-    "version": "1.0.0"
+    "version": "1.0.1"
   },
   "plugins": [
     {

@@ -1,7 +1,11 @@
 {
   "name": "sliced-loop",
   "description": "Two specialist agents build one app from opposite sides of an API contract, never reading each other's code. A supervisor cuts the scope into vertical slices, dispatches one task per session, and accepts the work. Runs on a timed loop.",
-  "version": "1.0.0",
+  "version": "1.0.1",
+  "author": {
+    "name": "ammarlokh95",
+    "url": "https://github.com/ammarlokh95"
+  },
   "keywords": ["agents", "workflow", "full-stack", "supervisor", "vertical-slice", "contract-first"],
   "license": "MIT"
 }
