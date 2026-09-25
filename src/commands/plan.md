@@ -3,14 +3,14 @@ description: Turn a brief into a backlog of vertical slices covering the whole i
 argument-hint: "[a brief, a file path, or a research slug]"
 ---
 
-Turn **$ARGUMENTS** into this project's backlog.
+Turn **{{args}}** into this project's backlog.
 
 ## 1. Find the brief
 
-`$ARGUMENTS` can be any of these. Work out which it is before reading anything:
+`{{args}}` can be any of these. Work out which it is before reading anything:
 
 - **A file path** — read it.
-- **A research slug** — `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/tasks.py" research $ARGUMENTS`,
+- **A research slug** — `python3 "{{scripts}}/tasks.py" research {{args}}`,
   then read the file it names.
 - **A Jira story or epic** — an issue key like `ABC-123`, or a browse URL.
   Fetch it with an Atlassian tool if one is available in this session; an epic
@@ -23,7 +23,7 @@ Turn **$ARGUMENTS** into this project's backlog.
 - **Nothing** — read `<workspace>/PROJECT.md`.
   - **Missing** — stop and tell the user: there is no brief to plan from. Point
     them at the three ways to give one (a file, a Jira issue, or prose), or at
-    `/sliced-loop:init` if the workspace itself was never created. Do not invent
+    `{{cmd:init}}` if the workspace itself was never created. Do not invent
     a project.
   - **Still the placeholder template** — ask what the project is rather than
     filling it in from imagination.
@@ -31,7 +31,7 @@ Turn **$ARGUMENTS** into this project's backlog.
     sharpen and structure it, never quietly drop a constraint or narrow the
     scope they stated.
 
-Check the board first: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/tasks.py" status`.
+Check the board first: `python3 "{{scripts}}/tasks.py" status`.
 If tasks already exist, this is a **scope extension**, not a first plan — say so,
 and seed only the new work, sequenced behind what is already there.
 
@@ -58,7 +58,7 @@ Offer these, and say which you would pick and why:
   Copy the existing file to `PROJECT.md.bak` first and tell them where it went.
 - **Cancel** — they wanted to look at it first.
 
-When `$ARGUMENTS` gave a brief **and** a written `PROJECT.md` exists, say plainly
+When `{{args}}` gave a brief **and** a written `PROJECT.md` exists, say plainly
 that there are now two briefs and which one you would treat as authoritative,
 rather than merging them silently.
 
@@ -68,7 +68,7 @@ needed — go straight on.
 
 ## 3. Hand it to the supervisor
 
-Spawn the `supervisor` agent with the brief and this instruction:
+{{Spawn:supervisor}} with the brief and this instruction:
 
 > Plan this project's initial scope.
 >
@@ -139,5 +139,5 @@ read as the whole initial project — if it obviously does not cover the scope i
 `PROJECT.md`, say so rather than moving on.
 
 Then say plainly that the tasks are `proposed`, and that
-`/loop 15m /sliced-loop:supervise` starts the loop that will triage and build
+`{{loop}}` starts the loop that will triage and build
 them. Do not wake the specialists here: seeding is not dispatching.

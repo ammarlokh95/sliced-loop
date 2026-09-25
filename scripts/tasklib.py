@@ -12,6 +12,7 @@ Layout, relative to the workspace named in `.sliced-loop.json`:
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
@@ -33,6 +34,9 @@ WARN_AT = 80      # lines; early warning so compaction is never a surprise
 # all, an `in-progress` claim belongs to a session that died — rate limit,
 # crash, closed terminal — and the task needs re-dispatching, not protecting.
 STALE_AFTER_MINUTES = 45
+# Consecutive quiet ticks after which the supervision loop ends itself. Override
+# with `idle_ticks` in .sliced-loop.json, or per loop on its command line.
+IDLE_TICKS = 5
 SKIP_DIRS = {"node_modules", "dist", "build", "coverage", ".git",
              ".next", ".vite", ".turbo", "__pycache__", "target", "vendor"}
 
@@ -192,6 +196,36 @@ def move_task(task_id: str, new_status: str) -> dict:
     return {"ok": True, "id": task_id, "from": old_status, "to": new_status}
 
 
+# --- access requests --------------------------------------------------------
+
+NEEDS_ACCESS = re.compile(r"needs-access:\s*(.+)$", re.I)
+ACCESS_GRANTED = re.compile(r"access (granted|given|connected)", re.I)
+
+
+def needs_access(task: dict) -> str:
+    """What a blocked task is waiting for a human to grant, or ''.
+
+    An agent that cannot open a design it needs blocks with a `needs-access:`
+    thread line rather than guessing. Only a human can resolve that, so it is
+    reported apart from ordinary blocks. A later thread line saying access was
+    granted clears it, and the supervisor moves the task back to `ready`.
+    """
+    if task.get("status") != "blocked":
+        return ""
+    heading = re.search(r"^## Thread[^\n]*$", task.get("body", ""), re.M)
+    if not heading:
+        return ""
+    need = ""
+    for line in task["body"][heading.end():].splitlines():
+        if line.startswith("## "):
+            break
+        if (m := NEEDS_ACCESS.search(line)):
+            need = m.group(1).strip()
+        elif need and ACCESS_GRANTED.search(line):
+            need = ""
+    return need[:160]
+
+
 # --- claim liveness ---------------------------------------------------------
 
 def _newest_mtime(root: Path) -> float:
@@ -273,3 +307,77 @@ def memory_sizes() -> list[tuple[str, int]]:
             except OSError:
                 continue
     return out
+
+
+# --- sessions and the idle counter ------------------------------------------
+
+def alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    # A zombie child of ours still answers kill(0); reap it if so.
+    try:
+        done, _ = os.waitpid(pid, os.WNOHANG)
+        return done == 0
+    except ChildProcessError:
+        return True
+
+
+def running_sessions() -> list[dict]:
+    """Headless specialist sessions started by dispatch.py that are still alive."""
+    out = []
+    folder = state_dir() / "running"
+    for path in sorted(folder.glob("*.json")) if folder.is_dir() else []:
+        try:
+            info = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if alive(int(info.get("pid", 0))):
+            out.append({**info, "agent": path.stem})
+    return out
+
+
+def idle_limit(override: int | None = None) -> int:
+    if override is not None:
+        return max(0, override)
+    try:
+        return max(0, int(cfg_module.setting("idle_ticks", IDLE_TICKS, ROOT)))
+    except (TypeError, ValueError):
+        return IDLE_TICKS
+
+
+def record_tick(quiet: bool, limit: int) -> dict:
+    """Count consecutive idle ticks; say when the loop should end itself.
+
+    A tick is idle only when it had nothing to do *and* nobody is working. With
+    no task-file changes but a specialist mid-task — a live claim or a running
+    headless session — the project is not idle, it is busy, and the count
+    resets. Otherwise a long task would end the loop under it.
+
+    `limit` 0 means never stop. On stop the count resets, so a restarted loop
+    starts fresh.
+    """
+    busy = [t["id"] for t in load_tasks()
+            if t["status"] == "in-progress" and not claim_liveness(t)["stale"]]
+    busy += [f"{s['agent']} session" for s in running_sessions()]
+
+    path = state_dir() / "idle.json"
+    try:
+        count = int(json.loads(path.read_text(encoding="utf-8")).get("count", 0))
+    except (OSError, ValueError):
+        count = 0
+
+    if not quiet:
+        count, why = 0, "active"
+    elif busy:
+        count, why = 0, "busy: " + ", ".join(busy)
+    else:
+        count, why = count + 1, "idle"
+
+    stop = limit > 0 and count >= limit
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"count": 0 if stop else count}), encoding="utf-8")
+    return {"count": count, "limit": limit, "stop": stop, "why": why}

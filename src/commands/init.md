@@ -7,7 +7,7 @@ Set up **the repository you are in** to be worked by this plugin's agents.
 
 ## 1. Work out the layout
 
-If `$ARGUMENTS` names two directories, use them as the frontend and backend
+If `{{args}}` names two directories, use them as the frontend and backend
 trees. Otherwise look at what is actually here before asking:
 
 ```bash
@@ -55,7 +55,7 @@ may be called anything; `.claude/sliced-loop` is the default.
 └── research/           findings from the research agent
 ```
 
-Copy from `${CLAUDE_PLUGIN_ROOT}/templates/`, then replace `<project>`,
+Copy from `{{templates}}/`, then replace `<project>`,
 `<workspace>` and `<date>` throughout:
 
 | template | goes to |
@@ -78,7 +78,7 @@ brief before reaching for tooling — list what you found and ask how to handle
 it, offering: keep theirs and create only what is missing (usually right),
 or back the file up to `<name>.bak` and write the template over it. Do not
 decide this for them: `PROJECT.md` is the one file in the workspace a person
-is likely to have authored by hand, and it is the input `/sliced-loop:plan`
+is likely to have authored by hand, and it is the input `{{cmd:plan}}`
 reads.
 
 ## 4. Make sure the workspace is actually tracked
@@ -136,15 +136,40 @@ session has, and no more:
 - **Figma.** Look for a Figma MCP tool in this session and use it to read the
   file or one frame.
 - **A Claude artifact** (a `claude.ai/…/artifact/…` link).
+<!-- if:claude -->
   Read it with the Artifact tool, not a web fetch.
+<!-- endif -->
+<!-- if:opencode,codex,gemini,cursor -->
+  This harness has no Artifact tool, and an artifact is private unless shared,
+  so a web fetch usually can't read it either. Ask the user to export it (the
+  page's HTML, or screenshots) into `<workspace>/design/`, and record the
+  export as its access.
+<!-- endif -->
 - **A web page.** Fetch it.
 - **Exports.** Confirm the files are in `<workspace>/design/`.
 
 Mark each entry `status: ok <date>` or `status: needs-access`, with what is
 missing. For anything that failed, tell the user exactly how to grant access:
+<!-- if:claude -->
 connect Figma, either as the claude.ai Figma connector or Figma's MCP server
 with `claude mcp add`; share the artifact with this account; or export into
 `design/`.
+<!-- endif -->
+<!-- if:opencode -->
+add a Figma MCP server to `opencode.json` under `"mcp"`, or export into
+`design/`.
+<!-- endif -->
+<!-- if:codex -->
+add a Figma MCP server with `codex mcp add` (it lands in `~/.codex/config.toml`),
+or export into `design/`.
+<!-- endif -->
+<!-- if:gemini -->
+add a Figma MCP server with `gemini mcp add`, or export into `design/`.
+<!-- endif -->
+<!-- if:cursor -->
+add a Figma MCP server in Cursor's MCP settings (`~/.cursor/mcp.json`), or
+export into `design/`.
+<!-- endif -->
 
 Access granted after a restart counts. Setup doesn't wait on it: a frontend task
 that needs a design it can't open blocks and asks for the design, instead of
@@ -152,14 +177,12 @@ guessing.
 
 ## 6. Tell the user what happens next
 
-- `/sliced-loop:plan` turns a brief into a backlog of vertical slices
-- `/loop 15m /sliced-loop:supervise` starts the supervision loop, which ends itself after 5 idle ticks
+- `{{cmd:plan}}` turns a brief into a backlog of vertical slices
+- `{{loop}}` starts the supervision loop, which ends itself after 5 idle ticks
   in a row. Change that with `idle_ticks` in `.sliced-loop.json`, and use `0` to
   never stop.
-- `/sliced-loop:status` shows the board state at any time
+- `{{cmd:status}}` shows the board state at any time
 
-Mention the one thing that trips people up: **the agents and the scope hook are
-read at startup**, so this session cannot use them. They register on the next
-`claude` launch — `claude --continue` keeps this conversation.
+Mention the one thing that trips people up: {{restart_note}}
 
 Do not open tasks here. Planning is a separate step and a different job.

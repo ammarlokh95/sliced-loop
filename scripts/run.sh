@@ -41,7 +41,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -f "$ROOT/.sliced-loop.json" ] || die "no .sliced-loop.json found — run /sliced-loop:init first"
+[ -f "$ROOT/.sliced-loop.json" ] || die "no .sliced-loop.json found — run the sliced-loop init command first"
 
 cfg_get() {
   command jq -r --arg k "$1" --arg d "$2" '(.[$k] // $d) | rtrimstr("/")' \

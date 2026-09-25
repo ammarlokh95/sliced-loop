@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/agent-scope.sh\"",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/scope.py\" hook claude",
             "timeout": 10,
             "statusMessage": "Checking agent scope"
           }
