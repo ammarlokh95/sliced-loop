@@ -1,4 +1,4 @@
-# sliced-loop
+# Sliced loop
 
 **Build a full-stack feature with agents that can't quietly break each other's
 half.**
