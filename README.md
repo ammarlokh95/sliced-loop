@@ -7,10 +7,11 @@ One agent holding a whole codebase drifts. It patches a screen to hide a server
 bug, invents an endpoint shape and builds both sides against the invention,
 marks its own work done, and forgets everything when the session ends.
 
-This plugin splits the work the way a team would, then enforces the split. Two
-engineers own one tree each and cannot see the other's; they coordinate through
-a written API contract. A third decides what gets built and accepts it, but
-never writes code — so nobody grades their own homework.
+This plugin splits the work the way a team would, then enforces the split. Every
+source tree — a web app, an API, a mobile app, a billing service — gets its own
+engineer, who cannot see anyone else's tree; they coordinate through written API
+contracts. A supervisor decides what gets built and accepts it, but never writes
+code — so nobody grades their own homework.
 
 ## What it actually does
 
@@ -18,12 +19,12 @@ You give it a brief — a `PROJECT.md`, a Jira epic, a file, or a sentence.
 
 1. **It plans.** The supervisor turns the brief into a backlog covering the
    whole initial scope, cut into *vertical slices*: "a customer can see their
-   past orders", never "the order model". Each slice becomes a backend task that
-   owns the API contract and a frontend task that depends on it.
+   past orders", never "the order model". Each slice becomes a task for the
+   service that owns the API contract, and a task for each UI that shows it.
 2. **It builds.** On a timer, a supervision tick looks at the board, promotes
-   what's genuinely unblocked, and wakes the agent that owns the next task. The
-   backend ships an endpoint and publishes its contract; the frontend reads that
-   contract and builds against it. Both sides work at once.
+   what's genuinely unblocked, and wakes the agent that owns the next task. A
+   service ships an endpoint and publishes its contract; each UI reads that
+   contract and builds against it. Every tree works at once.
 3. **It reviews.** Finished work goes to the supervisor, which checks it against
    the acceptance criteria written when the task was created — not against how
    it would have built it — and either accepts it or sends it back with a
@@ -35,11 +36,16 @@ anything it decided.
 
 ## Features
 
-**Enforced boundary.** A hook blocks each engineer from reading the other's tree
+**Enforced boundary.** A hook blocks each engineer from reading any other tree
 — before the read happens. Need an endpoint? Open a task stating the contract.
 
-**Vertical slices.** Every task is one user-visible outcome through both trees,
-so something works after the first slice instead of the last.
+**One agent per tree, as many trees as you have.** Two is the common case; add
+a mobile app or a second service whenever you like. Each agent gets a role (`ui`
+or `service`), an optional focus that shapes its brief, and optionally its own
+model.
+
+**Vertical slices.** Every task is one user-visible outcome through the trees it
+needs, so something works after the first slice instead of the last.
 
 **Whole scope planned up front.** Read the backlog end to end and you see the
 finished project. Details that depend on later learning are marked provisional,
@@ -62,11 +68,11 @@ session runs is re-dispatched as a resume. Otherwise one rate limit strands a
 task forever while every tick reports success.
 
 **Designs, or a request for access.** Point it at a Figma file or a Claude
-artifact, and the frontend builds from the frame the task names. If it can't
+artifact, and the UI agent builds from the frame the task names. If it can't
 open the design, it blocks and asks you for access instead of guessing.
 
-**Any layout.** A config file names your two trees. Without it the plugin is
-inert, so installing it can't disturb your other repos.
+**Any layout.** A config file names your trees and their agents. Without it the
+plugin is inert, so installing it can't disturb your other repos.
 
 **You outrank it.** Drag a card on the board; it writes straight into the task
 file as a manual override.
@@ -122,16 +128,20 @@ reviewed, and until you approve it the specialists are unconfined.
 
 ### Then, in the repository you want it to work on
 
-Run `init` (the exact command for each harness is under [Usage](#usage)). It
-writes `.sliced-loop.json`, creates the workspace, gives the frontend and
-backend their own git repositories (see [Repositories and
-commits](#repositories-and-commits)), and asks where your designs live (see
-[Designs](#designs)).
+`init` sets the repository up so each source tree gets its own confined agent.
+Run it (the exact command per harness is under [Usage](#usage)):
 
-**Restart the harness afterwards.** Agents, hooks and commands are read at
-startup, so the session that installs the plugin can't use it. In Claude Code,
-`claude --continue` keeps the conversation; check it loaded with `/agents` and
-`/hooks`.
+1. **Name the trees.** It proposes one agent per source directory it finds. For
+   each, you confirm its role (`ui` or `service`). You can also give it a focus
+   and a model (see [Agents](#agents)).
+2. **Register them.** Each agent gets a memory file, a contract (for services)
+   and its own git repository.
+3. **Create the workspace.** This is where the backlog, contracts and memory
+   live.
+4. **Point at designs.** Optional: Figma files or Claude artifacts for the UI
+   (see [Designs](#designs)).
+5. **Restart the harness** so it loads the agents and hooks. In Claude Code,
+   `claude --continue` keeps the conversation.
 
 ## Usage
 
@@ -155,7 +165,8 @@ Everything else is optional:
 | `status` | who is busy, who is idle, what waits on the supervisor — and on you |
 | `changes` | what moved in the task files since the last check |
 | `board` | drag-and-drop board; a human move outranks the rules |
-| `run` | start both halves, wired to each other |
+| `add-agent` | add a source tree, with its own agent (see [Agents](#agents)) |
+| `run` | start a service and a UI, wired to each other |
 | `research` | ask a question, or search what's been answered |
 
 Only the command syntax and the loop differ between harnesses.
@@ -279,14 +290,40 @@ To change the limit:
 `0` means never stop. The command line wins over the config, and the config
 wins over the default of 5.
 
+### Agents
+
+Every source tree has one agent, and it can only touch that tree:
+
+- **role:** a `ui` builds an interface from the services' contracts. A
+  `service` builds a server and publishes its contract.
+- **focus** (optional): what the tree holds, e.g. "React Native app". It shapes
+  the agent's brief and where the supervisor sends work.
+- **model** (optional): the LLM that runs it. Give one name, or one per
+  harness: `{"claude": "sonnet", "opencode": "anthropic/claude-sonnet-4-5"}`.
+
+**Adding a source directory later.** Use this for a mobile app, a second
+service, an admin panel:
+
+1. Run `add-agent` (e.g. `/sliced-loop:add-agent mobile apps/mobile ui`). It
+   asks for anything missing.
+2. It registers the agent, creates its memory file and repository, and writes
+   its definition.
+3. Restart the harness (Claude Code, OpenCode, Codex). Gemini CLI and Cursor
+   pick it up right away.
+4. Run `plan` with a brief for the new tree to give it work.
+
+`agents.py list` shows every agent. The generated agent files are gitignored,
+because they hold machine-specific paths. After cloning or a plugin update,
+`status` says `SYNC`; run `agents.py sync`.
+
 ### Designs
 
 If the UI should follow a design, tell `init` where it lives: a Figma file, a
 Claude artifact, or anything else with a link. It's recorded in
 `<workspace>/design/DESIGN.md`, and the supervisor attaches the relevant part to
-each frontend task.
+each UI task.
 
-The frontend agent reads a design through whatever access its session has:
+A UI agent reads a design through whatever access its session has:
 - Figma: a Figma MCP server.
 - A Claude artifact: the Artifact tool in Claude Code.
 - A public page: a web fetch.
@@ -301,18 +338,18 @@ tick.
 
 ## The moving parts
 
-Four agents, one workspace, one loop.
+One agent per source tree, two of the plugin's own, one workspace, one loop.
 
 | agent | sees | does |
 |-------|------|------|
-| `frontend` | its own tree + the workspace | builds the UI against the published contract |
-| `backend` | its own tree + the workspace | builds the server, publishes the contract |
+| each `ui` agent | its own tree + the workspace | builds an interface against the published contracts |
+| each `service` agent | its own tree + the workspace | builds a server, publishes its contract |
 | `supervisor` | everything | plans, prioritises, accepts, unblocks — writes no code |
 | `research` | the workspace only | answers a question with cited evidence |
 
-The **workspace** is the only place the two engineers meet. It holds the
-backlog, the published API contract, the shared decisions both must honour, and
-a memory file per agent.
+The **workspace** is the only place the engineers meet. It holds the backlog,
+each service's published API contract, the shared decisions every agent must
+honour, and a memory file per agent.
 
 The **loop** is one command (`/sliced-loop:supervise`) on a timer. Each tick
 reads what changed since the last one, so a quiet tick costs almost nothing —
@@ -334,23 +371,32 @@ Runtime state (the tick snapshot, anything cached later) goes in
 
 ## Configuration
 
-`.sliced-loop.json` at the repository root names the directories. Defaults:
+`.sliced-loop.json` at the repository root names every tree and its agent.
+`init` and `add-agent` write it:
 
 ```json
 {
-  "frontend": "frontend",
-  "backend": "backend",
-  "workspace": ".claude/sliced-loop"
+  "workspace": ".claude/sliced-loop",
+  "agents": {
+    "frontend": { "path": "apps/web",     "role": "ui" },
+    "backend":  { "path": "services/api", "role": "service", "model": "opus" },
+    "mobile":   { "path": "apps/mobile",  "role": "ui", "focus": "React Native app", "model": "sonnet" }
+  },
+  "harnesses": ["claude"]
 }
 ```
 
-Optional keys: `idle_ticks` (see [When the loop stops](#when-the-loop-stops)),
+`harnesses` lists where agent files are generated; `agents.py sync --harness X`
+adds one. Other optional keys: `idle_ticks` (see [When the loop stops](#when-the-loop-stops)),
 `commit: false` to stop agents committing, and `headless` (see [The terminal
 loop](#the-terminal-loop)).
 
-Any layout works — `apps/web` + `services/api`, `client/` + `server/`. The hook,
-the CLI, the board and every agent brief read this file rather than assuming.
-Without it the plugin is inert.
+Any layout works, as long as no tree sits inside another or inside the
+workspace. The hook, the CLI, the board and every agent brief read this file
+rather than assuming. Without it the plugin is inert.
+
+The original two-key form, `{"frontend": "web", "backend": "api"}`, still reads
+as a `ui` and a `service` agent. See [Upgrading](#upgrading).
 
 **The workspace sits inside `.claude/` on purpose:** out of your root listing,
 but still in the repo. The backlog, memory files and published contract describe
@@ -360,12 +406,13 @@ who clones gets no backlog and the agents start blind.
 
 ## Repositories and commits
 
-`init` sets up three repositories:
+`init` and `add-agent` give every tree its own repository:
 
 ```
 <root>/            repository — .sliced-loop.json and the workspace
-├── <frontend>/    its own repository, ignored by the root one
-└── <backend>/     its own repository, ignored by the root one
+├── <tree>/        its own repository, ignored by the root one
+├── <tree>/        …one per agent
+└── <tree>/
 ```
 
 Each agent commits when it finishes a task, through `scripts/commit.py`. Its
@@ -397,16 +444,16 @@ A few cases differ:
 ├── README.md           the coordination protocol
 ├── TEMPLATE.md         the task template
 ├── tasks/              one Markdown file per task
-├── capabilities/       the backend's published contract
-├── memory/             frontend.md · backend.md · decisions.md
+├── capabilities/       <service>/ — each service's published contract
+├── memory/             <agent>.md per agent · decisions.md
 ├── design/             DESIGN.md — where the designs live, and how to reach them
 └── research/           findings, with sources
 ```
 
 ## Requirements
 
-Python 3 for the tooling. `/sliced-loop:run` also needs `jq`, and assumes npm on
-both sides. Nothing else — the plugin has no dependencies of its own.
+Python 3 for the tooling. `run` assumes npm in both trees it starts. Nothing
+else — the plugin has no dependencies of its own.
 
 ## Limits worth knowing
 
@@ -416,8 +463,31 @@ both sides. Nothing else — the plugin has no dependencies of its own.
   the Claude session, or the terminal running `loop.py`. It also ends itself
   after 5 idle ticks.
 - **Headless dispatch doesn't chain.** On Gemini CLI and Cursor, a finished
-  specialist's next task waits for the next tick, not the same one.
+  agent's next task waits for the next tick, not the same one.
+- **A new agent needs a restart** on Claude Code, OpenCode and Codex, which load
+  subagents at startup.
 - **Codex and Cursor output is built from their docs.** It hasn't been run
   against those CLIs yet. The OpenCode and Gemini output loads in their CLIs.
 - **Acceptance is only as good as the criteria** written into the task. Vague
   criteria, vague acceptance.
+
+## Upgrading
+
+Projects set up before per-tree agents (plugin 1.0.x) keep working, but need one
+migration. `status` says `MIGRATE` until it's done:
+
+```
+python3 /path/to/sliced-loop/scripts/agents.py migrate --harness claude   # or your harness
+```
+
+It does three things:
+- rewrites `.sliced-loop.json` with an `agents` map.
+- moves the backend's contract from `capabilities/` to `capabilities/backend/`,
+  with `git mv` so its history follows.
+- writes the `frontend` and `backend` agent files.
+
+Commit the result and restart the harness. The plugin no longer ships
+`frontend` and `backend` itself. On Claude Code the plugin's agents are
+namespaced (`sliced-loop:frontend`), and the scope hook never recognised those
+names, so the two specialists ran unconfined there. Registered per project,
+under their bare names, they're confined.

@@ -1,10 +1,10 @@
 # Design sources — <project>
 
-Where the UI's designs live, and how an agent reaches each one. The frontend
-agent reads this before building anything a task links to a design. A design it
+Where the UI's designs live, and how an agent reaches each one. A UI agent
+reads this before building anything a task links to a design. A design it
 cannot open is a request for access, never a licence to guess.
 
-Kept by the supervisor and the human. The frontend agent may add exports it
+Kept by the supervisor and the human. A UI agent may add exports it
 pulled (a frame as PNG, tokens as JSON) to this directory and list them below.
 
 ## Sources
@@ -28,7 +28,7 @@ One entry per source. `access` is how an agent opens it:
 - status: ok 2026-09-24
 -->
 
-_None recorded yet. Without a design, the frontend agent works from the task's
+_None recorded yet. Without a design, a UI agent works from the task's
 acceptance criteria and its own craft standards._
 
 ## Exports

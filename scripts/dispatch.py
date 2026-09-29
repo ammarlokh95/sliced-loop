@@ -39,7 +39,8 @@ import build  # noqa: E402
 import config as cfg_module  # noqa: E402
 import tasklib  # noqa: E402
 
-AGENTS = ("frontend", "backend", "research", "supervisor")
+AGENTS = (*tasklib.OWNERS, "research", "supervisor")
+MODEL_FLAG = {"opencode": "--model", "codex": "--model", "gemini": "--model", "cursor": "--model"}
 
 
 # --- headless commands ------------------------------------------------------
@@ -61,14 +62,25 @@ def default_command(harness: str, root: Path, agent: str | None) -> list[str]:
     raise SystemExit(f"{harness} runs its agents in-session — use its supervise command instead")
 
 
-def command_for(harness: str, root: Path, agent: str | None, prompt: str) -> list[str]:
+def command_for(harness: str, root: Path, agent: str | None, prompt: str,
+                native: bool = False) -> list[str]:
+    """The headless command for `agent` (None: a supervise tick). `native`: the
+    harness loads the agent's brief itself from its name (OpenCode)."""
     try:
         declared = json.loads((root / cfg_module.CONFIG_NAME).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         declared = {}
-    template = (declared.get("headless") or {}).get(harness) or default_command(harness, root, agent)
+    custom = (declared.get("headless") or {}).get(harness)
+    template = list(custom or default_command(harness, root, agent if native else None))
     if "{prompt}" not in template:
         raise SystemExit(f'headless command for {harness} has no "{{prompt}}" placeholder')
+    # The agent's own model, unless a custom command already names one.
+    model = cfg_module.model_for(tasklib.AGENTS[agent], harness) if agent in tasklib.AGENTS else ""
+    if model and not custom:
+        at = template.index("{prompt}")
+        if at and template[at - 1] in ("-p", "--prompt"):  # an option whose value is the prompt
+            at -= 1
+        template[at:at] = [MODEL_FLAG[harness], model]
     return [prompt if part == "{prompt}" else part for part in template]
 
 
@@ -91,7 +103,7 @@ def prompt_for(harness: str, agent: str, task: str | None, resume: str | None,
     parts = []
     if not native_agent:
         parts.append(f"You are the `{agent}` agent. Your brief:\n\n"
-                     + build.body_for("agents", agent, harness).strip()
+                     + build.brief_for(agent, harness).strip()
                      + "\n\n---\n")
     if agent == "research":
         parts.append("Answer this question, verbatim as asked — do not rephrase it into a topic:\n\n"
@@ -146,7 +158,7 @@ def live_claim(agent: str) -> dict | None:
 def launch(harness: str, agent: str, prompt: str, *, wait: bool, label: str,
            native_agent: bool) -> int:
     root = tasklib.ROOT
-    argv = command_for(harness, root, agent if native_agent else None, prompt)
+    argv = command_for(harness, root, agent, prompt, native=native_agent)
     if not shutil.which(argv[0]):
         raise SystemExit(f"{argv[0]} is not on PATH — is {harness} installed?")
 
@@ -203,7 +215,11 @@ def main() -> int:
         print(f"refused: no task with id {args.task!r}", file=sys.stderr)
         return 2
 
-    native = args.harness == "opencode"  # `opencode run --agent` loads the brief itself
+    # `opencode run --agent` loads the brief itself — if the agent is registered:
+    # the plugin's own agents are installed user-wide, tree agents by agents.py sync.
+    native = args.harness == "opencode" and (
+        args.agent in build.PLUGIN_AGENTS
+        or (tasklib.ROOT / ".opencode" / "agents" / f"{args.agent}.md").is_file())
     prompt = prompt_for(args.harness, args.agent, args.task, args.resume, args.question, native)
     label = args.task or ("question" if args.agent == "research" else "tick")
     return launch(args.harness, args.agent, prompt, wait=args.wait, label=label, native_agent=native)

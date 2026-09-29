@@ -86,11 +86,23 @@ def cmd_changes(args: argparse.Namespace) -> int:
 
 
 def cmd_status(args: argparse.Namespace) -> int:
+    if tasklib.CFG["legacy"] or tasklib.legacy_contract():
+        print("MIGRATE  this project uses the original two-agent layout — run "
+              "`agents.py migrate --harness <yours>` before the next dispatch; until then "
+              "the backend cannot write its contract and no tree agent is registered")
+    else:
+        import agents as agents_mod
+        if (why := agents_mod.stale(tasklib.CFG)):
+            more = f" (+{len(why) - 2} more)" if len(why) > 2 else ""
+            print(f"SYNC     tree agent files need regenerating: {'; '.join(why[:2])}{more} — "
+                  f"run `agents.py sync`, then restart the harness so it loads them")
+
     tasks = tasklib.load_tasks()
     if not tasks:
         print("no tasks yet — the sliced-loop plan command turns a brief into a backlog")
         return 0
 
+    w = max(9, *(len(o) + 1 for o in tasklib.OWNERS))
     for owner in tasklib.OWNERS:
         mine = [t for t in tasks if t["owner"] == owner]
         working = tasklib.by_priority([t for t in mine if t["status"] == "in-progress"])
@@ -118,15 +130,15 @@ def cmd_status(args: argparse.Namespace) -> int:
         else:
             state = "IDLE    nothing ready"
 
-        print(f"{owner:9} {state}")
+        print(f"{owner:{w}} {state}")
         if stale:
-            print(f"{'':9}         re-dispatch it as a resume — do not treat as busy")
+            print(f"{'':{w}}         re-dispatch it as a resume — do not treat as busy")
         for t in blocked:
             if (need := tasklib.needs_access(t)):
-                print(f"{'':9}         BLOCKED {t['id']} on access only a human can grant: {need}")
+                print(f"{'':{w}}         BLOCKED {t['id']} on access only a human can grant: {need}")
                 continue
             on = ", ".join(t["depends_on"]) or "a question in its thread"
-            print(f"{'':9}         BLOCKED {t['id']} on {on}")
+            print(f"{'':{w}}         BLOCKED {t['id']} on {on}")
 
     for label, status in (("awaiting acceptance", "review"), ("awaiting triage", "proposed")):
         pending = tasklib.by_priority([t for t in tasks if t["status"] == status])
@@ -145,7 +157,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     if over:
         print(f"memory NEEDS COMPACTION (>= {tasklib.COMPACT_AT}): "
               + ", ".join(f"{n} {c} lines" for n, c in over))
-        print(f"{'':9}         its owner condenses it at the end of its next task")
+        print(f"{'':{w}}         its owner condenses it at the end of its next task")
     if near:
         print("memory approaching compaction: " + ", ".join(f"{n} {c} lines" for n, c in near))
     return 0

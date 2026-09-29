@@ -20,7 +20,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/tasks.py" research $ARGUMENTS
 verbatim; do not rephrase it into a topic, since the sharpness of the question is
 what makes the answer useful.
 
-Spawn the `research` agent with it. Tell it to follow its brief: cite sources, argue the
+Spawn the `sliced-loop:research` agent with it. Tell it to follow its brief: cite sources, argue the
 other side, say where the evidence is thin, and write the finding to the
 workspace's `research/` directory.
 

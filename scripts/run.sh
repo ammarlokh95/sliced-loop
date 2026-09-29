@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 #
-# Start this project's backend and frontend together, wired to each other.
+# Start one of this project's services and one of its UIs, wired to each other.
 #
-#   run.sh [--api-port N] [--web-port N] [--no-install]
+#   run.sh [--service NAME] [--ui NAME] [--api-port N] [--web-port N] [--no-install]
 #
-# A frontend built this way consumes a stub of the backend's published contract
-# and defaults to that stub — so running its dev server alone gives a convincing
+# A UI built this way consumes a stub of the service's published contract and
+# defaults to that stub — so running its dev server alone gives a convincing
 # app that never touches the network. This starts the real server and points the
-# frontend at it.
+# UI at it.
 #
-# Directory names come from .sliced-loop.json.
+# Agents and their trees come from .sliced-loop.json. Without --service/--ui,
+# the first `service` and the first `ui` agent listed there are used.
 #
 # Ctrl-C stops both.
 
@@ -29,13 +30,17 @@ note() { printf '%s%s%s\n' "$D" "$1" "$X"; }
 API_PORT=3000
 WEB_PORT=5173
 INSTALL=1
+SERVICE=""
+UI=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --api-port) API_PORT="${2-}"; shift 2 || die "--api-port needs a number" ;;
     --web-port) WEB_PORT="${2-}"; shift 2 || die "--web-port needs a number" ;;
+    --service) SERVICE="${2-}"; shift 2 || die "--service needs an agent name" ;;
+    --ui) UI="${2-}"; shift 2 || die "--ui needs an agent name" ;;
     --no-install) INSTALL=0; shift ;;
-    -h|--help) sed -n '3,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '3,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) die "unknown option $1" ;;
     *) die "unexpected argument $1" ;;
   esac
@@ -43,18 +48,33 @@ done
 
 [ -f "$ROOT/.sliced-loop.json" ] || die "no .sliced-loop.json found — run the sliced-loop init command first"
 
-cfg_get() {
-  command jq -r --arg k "$1" --arg d "$2" '(.[$k] // $d) | rtrimstr("/")' \
-    "$ROOT/.sliced-loop.json" 2>/dev/null || printf '%s' "$2"
+# The tree of the named agent, or of the first agent with that role.
+agent_dir() {
+  CLAUDE_PROJECT_DIR="$ROOT" python3 - "$1" "$2" "$PLUGIN_DIR" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[3])
+import config
+role, name = sys.argv[1], sys.argv[2]
+agents = config.load()["agents"]
+if name:
+    a = agents.get(name)
+    if not a or a["role"] != role:
+        sys.exit(f"no {role} agent named {name!r} in .sliced-loop.json")
+    print(a["path"])
+else:
+    print(next((a["path"] for a in agents.values() if a["role"] == role), ""))
+PY
 }
-FE_DIR=$(cfg_get frontend frontend)
-BE_DIR=$(cfg_get backend backend)
+BE_DIR=$(agent_dir service "$SERVICE") || die "could not resolve the service"
+FE_DIR=$(agent_dir ui "$UI") || die "could not resolve the ui"
+[ -n "$BE_DIR" ] || die "no service agent in .sliced-loop.json"
+[ -n "$FE_DIR" ] || die "no ui agent in .sliced-loop.json"
 PROJECT=$(basename "$ROOT")
 
 BACKEND="$ROOT/$BE_DIR"
 FRONTEND="$ROOT/$FE_DIR"
-[ -d "$BACKEND" ]  || die "no backend at $BE_DIR/"
-[ -d "$FRONTEND" ] || die "no frontend at $FE_DIR/"
+[ -d "$BACKEND" ]  || die "no service tree at $BE_DIR/"
+[ -d "$FRONTEND" ] || die "no ui tree at $FE_DIR/"
 [ -f "$BACKEND/package.json" ]  || die "$BE_DIR/ has no package.json — this runner expects npm on both sides"
 [ -f "$FRONTEND/package.json" ] || die "$FE_DIR/ has no package.json — this runner expects npm on both sides"
 
@@ -131,15 +151,15 @@ trap cleanup EXIT
 # The backend in this workspace is deliberately dependency-free; the frontend
 # is not, so only it may need installing.
 if [ "$INSTALL" = 1 ] && [ ! -d "$FRONTEND/node_modules" ]; then
-  note "installing frontend dependencies (first run)…"
+  note "installing $FE_DIR/ dependencies (first run)…"
   if [ -f "$FRONTEND/package-lock.json" ]; then
-    (cd "$FRONTEND" && npm ci) || die "npm ci failed in frontend/$PROJECT"
+    (cd "$FRONTEND" && npm ci) || die "npm ci failed in $FE_DIR/"
   else
-    (cd "$FRONTEND" && npm install) || die "npm install failed in frontend/$PROJECT"
+    (cd "$FRONTEND" && npm install) || die "npm install failed in $FE_DIR/"
   fi
 fi
 
-printf '%s%s%s  backend + frontend, wired together\n\n' "$B" "$PROJECT" "$X"
+printf '%s%s%s  %s/ + %s/, wired together\n\n' "$B" "$PROJECT" "$X" "$BE_DIR" "$FE_DIR"
 
 # --- backend ---------------------------------------------------------------
 ( cd "$BACKEND" && PORT="$API_PORT" npm start 2>&1 | sed "s/^/$(printf '%s' "${C}api ${X}")/" ) &
@@ -149,11 +169,11 @@ printf 'waiting for the api on %s' "$API_PORT"
 for _ in $(seq 1 60); do
   port_busy "$API_PORT" && break
   [ "$CLEANED" = 1 ] && exit 130
-  kill -0 "$API_PID" 2>/dev/null || { printf '\n'; die "the backend exited before it listened — see the api output above"; }
+  kill -0 "$API_PID" 2>/dev/null || { printf '\n'; die "the service ($BE_DIR/) exited before it listened — see the api output above"; }
   printf '.'; sleep 0.5
 done
 printf '\n'
-port_busy "$API_PORT" || die "the backend never listened on $API_PORT"
+port_busy "$API_PORT" || die "the service ($BE_DIR/) never listened on $API_PORT"
 
 # --- frontend --------------------------------------------------------------
 # Point the client at the real server. A frontend that does not read these is
@@ -170,14 +190,14 @@ WEB_PID=$!
 for _ in $(seq 1 60); do
   port_busy "$WEB_PORT" && break
   [ "$CLEANED" = 1 ] && exit 130
-  kill -0 "$WEB_PID" 2>/dev/null || { printf '\n'; die "the frontend exited before it listened — see the web output above"; }
+  kill -0 "$WEB_PID" 2>/dev/null || { printf '\n'; die "the ui ($FE_DIR/) exited before it listened — see the web output above"; }
   sleep 0.5
 done
 
 printf '\n  %sapp%s  http://127.0.0.1:%s\n' "$B" "$X" "$WEB_PORT"
 printf '  %sapi%s  %s\n' "$B" "$X" "$API_URL"
 if grep -rqs 'VITE_API_STUB' "$FRONTEND/src" 2>/dev/null; then
-  note "  the frontend is on the real api, not its stub (VITE_API_STUB=false)"
+  note "  the ui is on the real api, not its stub (VITE_API_STUB=false)"
 fi
 printf '\n%sctrl-c to stop both%s\n\n' "$D" "$X"
 

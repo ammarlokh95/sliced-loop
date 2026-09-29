@@ -213,6 +213,9 @@ def main() -> int:
 
     print("then, in the repository to work on, run its init command:",
           build._cmd(h, "init"))
+    if h in build.REGISTERED:
+        print(f"a repository already set up registers its agents for {h} with: "
+              f"python3 {build.PLUGIN_ROOT}/scripts/agents.py sync --harness {h}")
     return 0
 
 

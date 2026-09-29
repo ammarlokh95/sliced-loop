@@ -13,6 +13,13 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/tasks.py" changes
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/tasks.py" status
 ```
 
+If `status` starts with **`MIGRATE`**, the project predates per-tree agents.
+Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agents.py" migrate --harness claude` before
+anything else. If it starts with **`SYNC`**, run
+`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agents.py" sync`. In both cases, if the harness registers
+agents at startup, tell the user to restart it and end the tick: an agent
+written now can't be spawned in this session.
+
 `changes` reports only what is new since the previous tick and then advances its
 snapshot, so anything it prints is genuinely new.
 
@@ -82,7 +89,7 @@ criterion it has not verified itself.
 
 ## 4. Review the changes
 
-If anything changed, spawn the `supervisor` agent with the exact output of both
+If anything changed, spawn the `sliced-loop:supervisor` agent with the exact output of both
 commands, and ask it to:
 
 - accept `review` → `done` against the acceptance criteria, triage `proposed` →
@@ -93,11 +100,13 @@ commands, and ask it to:
 - **verify its own writes before reporting** — re-read each file after editing
   and report only what it has confirmed on disk. A reported-but-unwritten
   acceptance is worse than an unmade one, because nothing downstream notices.
-- end with a dispatch decision, one line per agent, in exactly this shape:
+- end with a dispatch decision, one line per tree agent (every agent in
+  `agents.py list`), in exactly this shape:
 
 ```
 DISPATCH: frontend FE-004 — <one line on why this is next>
 DISPATCH: backend none — <one line on why nothing>
+DISPATCH: mobile MO-002 — <one line on why this is next>
 ```
 
 The supervisor decides; you carry the decision out. A tick where it only triages
@@ -114,8 +123,7 @@ memory, commit, report, and stop.
 - **Never wake an agent the supervisor did not name.**
 - One task per session. The agent stops after one; that is deliberate, it is how
   its context gets discarded between tasks.
-- Run both dispatches concurrently when both are named — different trees do not
-  collide.
+- Run every named dispatch concurrently — different trees do not collide.
 
 ## 6. Keep going while there is work
 
@@ -133,7 +141,7 @@ supervisor's judgment again (a task hit `review` or `blocked`, or a new
 One short line: what changed, what was accepted or triaged, who you woke and on
 what. If `status` lists anything **waiting on a human**, a task blocked on access
 only a human can grant, add a second line naming it and what it needs. That is
-the one thing a tick can't do for itself. If nothing happened: "no changes, both agents idle with nothing ready".
+the one thing a tick can't do for itself. If nothing happened: "no changes, every agent idle with nothing ready".
 Keep it terse — this line lands in your own context on every tick.
 
 A tick that got this far did something, so reset the idle count:

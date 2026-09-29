@@ -6,7 +6,7 @@ Layout, relative to the workspace named in `.sliced-loop.json`:
 
     <workspace>/tasks/<ID>-<slug>.md
               /capabilities/
-              /memory/{frontend,backend,decisions}.md
+              /memory/{<agent>,decisions}.md
               /research/
 """
 
@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config as cfg_module  # noqa: E402
 
 STATUSES = ["proposed", "ready", "in-progress", "blocked", "review", "done"]
-OWNERS = ("frontend", "backend")
+# The agents that own source trees come from .sliced-loop.json: see AGENTS.
 
 COMPACT_AT = 100  # lines; past this the owning agent condenses the file
 WARN_AT = 80      # lines; early warning so compaction is never a surprise
@@ -47,7 +47,31 @@ PRIORITY_RANK = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
 CFG = cfg_module.load()
 ROOT = CFG["root"]
 WORKSPACE = CFG["workspace_path"]
-TREES = {"frontend": CFG["frontend_path"], "backend": CFG["backend_path"]}
+AGENTS = CFG["agents"]
+# Every agent that owns a source tree, and so can own tasks.
+OWNERS = tuple(AGENTS)
+TREES = {name: a["path_abs"] for name, a in AGENTS.items()}
+
+
+def contract_dir(name: str) -> Path:
+    """Where a `service` agent publishes its contract. Every agent reads all of
+    them; only the owner writes its own."""
+    return WORKSPACE / "capabilities" / name
+
+
+def memory_file(name: str) -> Path:
+    return WORKSPACE / "memory" / f"{name}.md"
+
+
+def services() -> list[str]:
+    return [n for n, a in AGENTS.items() if a["role"] == "service"]
+
+
+def legacy_contract() -> bool:
+    """A workspace from before per-service contracts: files directly in
+    capabilities/ instead of capabilities/<service>/."""
+    folder = WORKSPACE / "capabilities"
+    return folder.is_dir() and any(p.is_file() for p in folder.iterdir())
 
 
 def tasks_dir() -> Path:

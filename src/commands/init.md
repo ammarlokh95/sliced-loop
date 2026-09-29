@@ -1,46 +1,76 @@
 ---
 description: Set this repository up for the sliced-loop workflow
-argument-hint: "[frontend-dir] [backend-dir]"
+argument-hint: "[source dirs…]"
 ---
 
 Set up **the repository you are in** to be worked by this plugin's agents.
 
+Every source tree gets its own agent, confined to that tree. Most projects have
+a UI and a server; many have more, such as a web app and a mobile app, or an
+API and a billing service. Each agent has:
+
+- **a name**, lowercase, e.g. `frontend`, `backend`, `mobile`, `billing`. Not
+  `supervisor` or `research`, which are the plugin's own agents.
+- **a role**. `ui` builds an interface and consumes contracts. `service` builds
+  a server and publishes its contract for the others.
+- **a focus**, optional: what kind of code the tree holds, e.g. "React Native
+  app for iOS and Android" or "Go billing worker". It goes into the agent's
+  brief.
+- **a model**, optional: the LLM that runs it, e.g. `sonnet` for a small tree,
+  `opus` for the core API. Leave it out to use the harness's default. It can be
+  one per harness: `{"claude": "sonnet", "opencode": "anthropic/claude-sonnet-5"}`.
+
 ## 1. Work out the layout
 
-If `{{args}}` names two directories, use them as the frontend and backend
-trees. Otherwise look at what is actually here before asking:
+If `{{args}}` names directories, start from those. Otherwise look at what is
+actually here before asking:
 
 ```bash
-ls -d */ 2>/dev/null | head -20
+ls -d */ */*/ 2>/dev/null | head -40
 cat .sliced-loop.json 2>/dev/null
 ```
 
-- **Already has `.sliced-loop.json`** — this repo is already set up. Say what it
-  points at and stop; do not overwrite it.
-- **Recognisable trees already exist** — `frontend/`+`backend/`, `apps/web`+
-  `services/api`, `client/`+`server/`, `web/`+`api/`. Propose what you found and
-  confirm before writing.
-- **Nothing recognisable, or it is an empty repo** — ask what the two trees
-  should be called, and whether you should create them. Do not guess: the whole
-  enforcement model rests on these two paths being right.
+- **Already has `.sliced-loop.json` with an `"agents"` map.** This repo is
+  already set up. Run `python3 "{{scripts}}/agents.py" list`, say what it
+  shows, and stop. More trees are added with `{{cmd:add-agent}}`.
+- **Has `.sliced-loop.json` without one.** It uses the original two-agent
+  layout. Run `python3 "{{scripts}}/agents.py" migrate --harness {{harness}}`,
+  report what it did, and stop.
+- **Recognisable trees exist**, such as `frontend/`+`backend/`,
+  `apps/web`+`apps/mobile`+`services/api`, or `client/`+`server/`. Propose one
+  agent per tree: name, role, and a focus if the tree makes it obvious. Confirm
+  with the user before writing anything.
+- **Nothing recognisable, or an empty repo.** Ask what the trees should be,
+  what each one is for, and whether to create them. Don't guess: the whole
+  enforcement model rests on these paths being right.
 
-A project with no meaningful frontend/backend split is a bad fit for this
-plugin. Say so plainly rather than forcing a layout onto it.
+Ask whether any agent should run on a particular model. A project without both
+a UI and a service is a poor fit for this plugin; say so plainly rather than
+forcing a layout onto it.
 
-## 2. Write the config
+## 2. Register each agent
 
-`.sliced-loop.json` at the repository root:
+For each agreed tree, run:
 
-```json
-{
-  "frontend": "<frontend dir>",
-  "backend": "<backend dir>",
-  "workspace": ".claude/sliced-loop"
-}
+```bash
+python3 "{{scripts}}/agents.py" add <name> --path <dir> --role <ui|service> \
+    [--focus "<what the tree holds>"] [--model <model>] [--create] --harness {{harness}}
 ```
 
-Paths are relative to the repo root, no leading or trailing slash. The workspace
-may be called anything; `.claude/sliced-loop` is the default.
+`--create` makes the directory if it doesn't exist; only pass it if the user
+asked for it. Each run does four things:
+- validates the agent against the ones already there, and writes it into
+  `.sliced-loop.json`. The first run creates the file.
+- creates the agent's memory file and, for a service, its contract in
+  `<workspace>/capabilities/<name>/`.
+- gives the tree its own git repository (see step 4).
+- writes the agent's definition for this harness. That file is machine-specific,
+  so it's gitignored.
+
+Paths are relative to the repository root. The workspace defaults to
+`.claude/sliced-loop`. For a different one, write
+`{"workspace": "<dir>", "agents": {}}` to `.sliced-loop.json` before the first
+`add`.
 
 ## 3. Create the workspace
 
@@ -49,28 +79,26 @@ may be called anything; `.claude/sliced-loop` is the default.
 ├── PROJECT.md          what this is, scope, constraints, status
 ├── TEMPLATE.md         the task template
 ├── tasks/              one Markdown file per task
-├── capabilities/       CAPABILITIES.md + openapi.yaml — the backend publishes here
-├── memory/             frontend.md · backend.md · decisions.md
+├── capabilities/       <service>/ — each service's published contract
+├── memory/             <agent>.md per agent · decisions.md
 ├── design/             DESIGN.md — where the designs live, and how to reach them
 └── research/           findings from the research agent
 ```
 
-Copy from `{{templates}}/`, then replace `<project>`,
-`<workspace>` and `<date>` throughout:
+`agents.py add` already created each agent's memory file and contract. Copy the
+rest from `{{templates}}/`, then replace `<project>`, `<workspace>` and `<date>`
+throughout:
 
 | template | goes to |
 |----------|---------|
 | `PROJECT.md` | `<workspace>/PROJECT.md` |
 | `TEMPLATE.md` | `<workspace>/TEMPLATE.md` |
 | `workspace-README.md` | `<workspace>/README.md` |
-| `capabilities/` | `<workspace>/capabilities/` |
 | `research/README.md` | `<workspace>/research/README.md` |
-| `memory-agent.md` | `<workspace>/memory/frontend.md` **and** `memory/backend.md` (set `<agent>` in each) |
 | `memory-decisions.md` | `<workspace>/memory/decisions.md` |
 | `design/DESIGN.md` | `<workspace>/design/DESIGN.md` |
 
-Create `<workspace>/tasks/` empty. Create the two source trees only if they do
-not exist and the user asked you to.
+Create `<workspace>/tasks/` empty.
 
 **Never overwrite a file that already exists.** Check before writing each one.
 If any are already there — most likely `PROJECT.md`, because people write the
@@ -81,38 +109,33 @@ decide this for them: `PROJECT.md` is the one file in the workspace a person
 is likely to have authored by hand, and it is the input `{{cmd:plan}}`
 reads.
 
-## 4. Give each tree its own repository
+## 4. Check each tree's repository
 
-The frontend and backend each get their own git repository. Each agent then
-commits its code where nothing else writes, and the two histories stay as
-separate as the two trees. The project root keeps a repository too, for
-`.sliced-loop.json` and the workspace, and ignores the two trees.
+Every tree has its own git repository. Each agent then commits its code where
+nothing else writes, and the histories stay as separate as the trees. The
+project root keeps a repository too, for `.sliced-loop.json` and the workspace,
+and ignores the trees.
 
-See where things stand first:
+`agents.py add` already set this up for each tree it registered. See where
+things stand:
 
 ```bash
 python3 "{{scripts}}/repos.py" status
 ```
 
-Then create what is missing:
-
-```bash
-python3 "{{scripts}}/repos.py" init
-```
-
-It creates the root repository if there is none. A project inside a larger
-repository keeps using that one. It gives each tree its own repository with an
-initial commit of what is already there, and adds both trees to the root
-`.gitignore`. It leaves alone a tree that already has its own repository.
+A root repository is created only if there is none; a project inside a larger
+repository keeps using that one. A tree with no repository got one, with an
+initial commit of what was already there, and was added to the root
+`.gitignore`. A tree that already had its own repository was left alone.
 
 **A tree the root repository already tracks is not split without asking.** That
 is an existing monorepo. Splitting it removes the tree from the root
 repository's index. Its history stays in the root repository, and the new one
-starts from today. `init` reports this and stops. Explain it to the user and
-offer both choices:
+starts from today. `agents.py add` reports this and leaves the tree as it is.
+Explain it to the user and offer both choices:
 
-- **Split it:** run `repos.py init --split-tracked`, then commit the removal in
-  the root repository.
+- **Split it:** run `python3 "{{scripts}}/repos.py" init --split-tracked`, then
+  commit the removal in the root repository.
 - **Keep one repository:** do nothing. Agents still commit only their own
   files; they just share the one repository.
 

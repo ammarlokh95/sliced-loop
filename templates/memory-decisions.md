@@ -1,6 +1,6 @@
 # Shared decisions — <project>
 
-Cross-boundary decisions both agents must honour. Written by the supervisor,
+Cross-boundary decisions every agent must honour. Written by the supervisor,
 read by everyone. Keep it to what actually spans the boundary: auth scheme,
 error envelope, pagination style, versioning, dates and money representation.
 
@@ -12,4 +12,4 @@ _e.g. bearer auth, `{error: {code, message}}`, cursor pagination, ISO-8601 UTC._
 
 ## Open questions
 
-_Things neither side should guess at yet._
+_Things no agent should guess at yet._

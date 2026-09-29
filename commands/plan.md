@@ -68,12 +68,13 @@ needed — go straight on.
 
 ## 3. Hand it to the supervisor
 
-Spawn the `supervisor` agent with the brief and this instruction:
+Spawn the `sliced-loop:supervisor` agent with the brief and this instruction:
 
 > Plan this project's initial scope.
 >
-> 1. Read `.sliced-loop.json` for the directory names, then `<workspace>/PROJECT.md`
->    and `memory/decisions.md`. That plus the brief is your context — do not tour
+> 1. Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agents.py" list` for the agents — each tree, its
+>    role, focus and task-ID prefix — then read `<workspace>/PROJECT.md` and
+>    `memory/decisions.md`. That plus the brief is your context — do not tour
 >    the source trees.
 > 2. `PROJECT.md` — **<paste the user's answer from step 2 here as an explicit
 >    rule: use unchanged / fill gaps only / replaced, already backed up>**.
@@ -88,10 +89,10 @@ Spawn the `supervisor` agent with the brief and this instruction:
 >    auth scheme, error envelope, pagination style, date and money representation.
 >    Leave genuinely open questions under "Open questions" rather than guessing.
 > 4. Cut the scope into **vertical slices**. A slice is one user-visible outcome
->    that runs through both trees — "a customer can see their past orders", not
->    "the order model" or "the API layer". Layering horizontally leaves nothing
->    demonstrable until the end and blocks every frontend task behind every
->    backend task; slicing does not. A few genuinely cross-cutting tasks are not
+>    that runs through every tree it needs — "a customer can see their past
+>    orders", not "the order model" or "the API layer". Layering horizontally
+>    leaves nothing demonstrable until the end and blocks every UI task behind
+>    every service task; slicing does not. A few genuinely cross-cutting tasks are not
 >    slices and that is fine — authentication, the app shell and design tokens,
 >    database setup. Those come first, because everything depends on them.
 > 5. Open tasks in `<workspace>/tasks/` covering the **whole initial scope** as
@@ -99,11 +100,15 @@ Spawn the `supervisor` agent with the brief and this instruction:
 >    backlog should show the finished project. Work beyond that initial scope is
 >    not seeded; it becomes new tasks later, worked out with the human.
 >
->    Per slice, one task each side: the **backend** task owns the contract and
->    carries it in `## Contract` — method, path, auth, request and response
->    schemas with field types, status codes, error shape, pagination. The
->    **frontend** task consumes it and declares `depends_on: [BE-00n]`. A slice
->    needing no server work is a single frontend task, and the reverse.
+>    Per slice, one task per tree it touches, owned by that tree's agent and
+>    numbered with its prefix. The **service** task — for the service that
+>    should own the endpoint — owns the contract and carries it in `## Contract`:
+>    method, path, auth, request and response schemas with field types, status
+>    codes, error shape, pagination. Each **ui** task that surfaces the outcome
+>    consumes it and declares `depends_on: [<the service task>]`. The same
+>    outcome on web and mobile is one service task and two UI tasks. A slice
+>    needing no server work is UI tasks alone, and the reverse. Place work by
+>    each agent's focus as well as its role.
 >
 >    Every task: real acceptance criteria including the failure cases,
 >    `requested_by: supervisor`, a priority, and a thread line naming where it
@@ -117,13 +122,13 @@ Spawn the `supervisor` agent with the brief and this instruction:
 >    belongs in PROJECT.md's open questions.
 > 6. Read `design/DESIGN.md`. If the brief or `PROJECT.md` points at designs
 >    it doesn't list (a Figma link, a Claude artifact), add them with
->    `status: unverified`. Give every frontend task that follows a design a
->    `## Design` section naming the exact frame or section. Don't describe the
->    design in the task: the frontend agent reads the source itself, and asks
->    for access if it can't.
+>    `status: unverified`. Give every UI task that follows a design a `## Design`
+>    section naming the exact frame or section. Don't describe the design in
+>    the task: the UI agent reads the source itself, and asks for access if it
+>    can't.
 > 7. Set priorities honestly: cross-cutting first, then slice by slice in the
->    order that makes the project useful earliest. Within a slice the backend
->    task outranks the frontend task that depends on it.
+>    order that makes the project useful earliest. Within a slice the service
+>    task outranks the UI tasks that depend on it.
 >
 > Leave every task `proposed`. You will triage them to `ready` on the next
 > supervision tick, a few at a time — `ready` means claimable now, and a board
