@@ -13,6 +13,33 @@ engineer, who cannot see anyone else's tree; they coordinate through written API
 contracts. A supervisor decides what gets built and accepts it, but never writes
 code — so nobody grades their own homework.
 
+## Contents
+
+- [What it actually does](#what-it-actually-does)
+- [Features](#features)
+- [Install](#install)
+  - [Claude Code](#claude-code)
+  - [OpenCode, Codex, Gemini CLI, Cursor](#opencode-codex-gemini-cli-cursor)
+  - [Then, in the repository you want it to work on](#then-in-the-repository-you-want-it-to-work-on)
+- [Usage](#usage)
+  - [Claude Code](#claude-code-1)
+  - [OpenCode](#opencode)
+  - [Codex](#codex)
+  - [Gemini CLI](#gemini-cli)
+  - [Cursor](#cursor)
+  - [The loop](#the-loop)
+  - [When the loop stops](#when-the-loop-stops)
+  - [Agents](#agents)
+  - [Designs](#designs)
+- [The moving parts](#the-moving-parts)
+- [The board is local](#the-board-is-local)
+- [Configuration](#configuration)
+- [Repositories and commits](#repositories-and-commits)
+- [What it creates](#what-it-creates)
+- [Requirements](#requirements)
+- [Limitations](#limitations)
+- [Upgrading](#upgrading)
+
 ## What it actually does
 
 You give it a brief — a `PROJECT.md`, a Jira epic, a file, or a sentence.
@@ -467,7 +494,7 @@ A few cases differ:
 Python 3 for the tooling. `run` assumes npm in both trees it starts. Nothing
 else — the plugin has no dependencies of its own.
 
-## Limits worth knowing
+## Limitations
 
 - **Bash is a guard rail, not a jail.** File tools are enforced exactly; shell
   commands are only pattern-checked, and a shell has routes text can't see.
