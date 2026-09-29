@@ -149,8 +149,9 @@ The workflow is the same everywhere:
 
 1. `init` sets up the repository.
 2. `plan` turns a brief into a backlog covering the whole initial scope.
-3. `loop start` runs the supervision loop in the background until the project
-   goes idle (see [The loop](#the-loop)).
+3. `loop start` (e.g. `/sliced-loop:loop start`) runs the supervision loop in
+   the background until the project goes idle. `loop stop` ends it and
+   `loop status` shows it (see [The loop](#the-loop)).
 
 `plan` takes a brief in any of four forms. With no argument it reads
 `<workspace>/PROJECT.md`. If that file is missing, it tells you rather than
@@ -362,10 +363,11 @@ The **workspace** is the only place the engineers meet. It holds the backlog,
 each service's published API contract, the shared decisions every agent must
 honour, and a memory file per agent.
 
-The **loop** is one command (`/sliced-loop:supervise`) on a timer. Each tick
+The **loop** runs in the background, started with the `loop` command. Each tick
 reads what changed since the last one, so a quiet tick costs almost nothing —
-most of them are quiet. A tick with something in it recovers dead claims, calls
-the supervisor to review and triage, then wakes whoever has work.
+most of them are quiet. A tick with something in it makes the mechanical moves,
+calls the supervisor only if a decision is needed, then wakes whoever has work,
+each in a fresh session.
 
 A **task** is a Markdown file with frontmatter: owner, status, priority,
 dependencies, acceptance criteria, and a thread the agents append to. That file
@@ -469,9 +471,9 @@ else — the plugin has no dependencies of its own.
 
 - **Bash is a guard rail, not a jail.** File tools are enforced exactly; shell
   commands are only pattern-checked, and a shell has routes text can't see.
-- **The loop lives in one session** and stops when that session closes. That's
-  the Claude session, or the terminal running `loop.py`. It also ends itself
-  after 5 idle ticks.
+- **The loop is a background process on your machine.** It survives the chat,
+  but not a reboot, and ends itself after 5 idle ticks. `loop status` shows
+  whether it's running.
 - **Running `supervise` by hand on Gemini CLI or Cursor doesn't chain.** It
   starts agents detached, so their next tasks wait for the next tick. `loop.py`
   chains on every harness.
