@@ -149,8 +149,9 @@ The workflow is the same everywhere:
 
 1. `init` sets up the repository.
 2. `plan` turns a brief into a backlog covering the whole initial scope.
-3. The loop runs `supervise` on an interval. It ends itself once the project
-   goes idle (see [When the loop stops](#when-the-loop-stops)).
+3. `loop start` (e.g. `/sliced-loop:loop start`) runs the supervision loop in
+   the background until the project goes idle. `loop stop` ends it and
+   `loop status` shows it (see [The loop](#the-loop)).
 
 `plan` takes a brief in any of four forms. With no argument it reads
 `<workspace>/PROJECT.md`. If that file is missing, it tells you rather than
@@ -162,6 +163,7 @@ Everything else is optional:
 
 | command | what it does |
 |---------|--------------|
+| `loop` | start, stop or check the background loop (see [The loop](#the-loop)) |
 | `status` | who is busy, who is idle, what waits on the supervisor — and on you |
 | `changes` | what moved in the task files since the last check |
 | `board` | drag-and-drop board; a human move outranks the rules |
@@ -179,57 +181,43 @@ Only the command syntax and the loop differ between harnesses.
 /sliced-loop:plan ABC-123             # a Jira story or epic
 /sliced-loop:plan notes/brief.md      # a file
 /sliced-loop:plan "build a ..."       # prose
-/loop 15m /sliced-loop:supervise      # stops after 5 idle ticks
-/loop 15m /sliced-loop:supervise 10   # ...or after 10; 0 never stops
+/sliced-loop:loop start               # the loop, in the background
 ```
 
 The other commands are `/sliced-loop:status`, `/sliced-loop:board` and so on.
-The loop lives in your session. It ends when the session closes, or when it
-reaches its idle limit, at which point it cancels its own `/loop`.
+You can also loop inside your session, with `/loop 15m /sliced-loop:supervise`.
+That costs more: every tick, and every report it gets back, stays in your
+conversation.
 
 ### OpenCode
 
 ```
 /sliced-loop-init
 /sliced-loop-plan notes/brief.md
+/sliced-loop-loop start
 ```
 
-Commands are `/sliced-loop-<name>`. OpenCode has no `/loop`, so run the loop
-from a terminal in the repository:
-
-```
-python3 /path/to/sliced-loop/scripts/loop.py --harness opencode --every 15m                  # stops after 5 idle ticks
-python3 /path/to/sliced-loop/scripts/loop.py --harness opencode --every 15m --idle-ticks 10  # ...or after 10; 0 never stops
-```
+Commands are `/sliced-loop-<name>`.
 
 ### Codex
 
 ```
 $sliced-loop-init
 $sliced-loop-plan notes/brief.md
+$sliced-loop-loop start
 ```
 
-The commands are skills, invoked as `$sliced-loop-<name>`. Run the loop from a
-terminal:
-
-```
-python3 /path/to/sliced-loop/scripts/loop.py --harness codex --every 15m                  # stops after 5 idle ticks
-python3 /path/to/sliced-loop/scripts/loop.py --harness codex --every 15m --idle-ticks 10  # ...or after 10; 0 never stops
-```
+The commands are skills, invoked as `$sliced-loop-<name>`.
 
 ### Gemini CLI
 
 ```
 /sliced-loop:init
 /sliced-loop:plan notes/brief.md
+/sliced-loop:loop start
 ```
 
-The command names are the same as in Claude Code. Run the loop from a terminal:
-
-```
-python3 /path/to/sliced-loop/scripts/loop.py --harness gemini --every 15m                  # stops after 5 idle ticks
-python3 /path/to/sliced-loop/scripts/loop.py --harness gemini --every 15m --idle-ticks 10  # ...or after 10; 0 never stops
-```
+The command names are the same as in Claude Code.
 
 Gemini's hooks can't tell which subagent is acting, so a specialist never runs
 inside your session. Each one runs as its own headless session. It gets its
@@ -242,31 +230,56 @@ brief and one task, runs detached, and logs to `<workspace>/.state/logs/`.
 ```
 /sliced-loop-init
 /sliced-loop-plan notes/brief.md
+/sliced-loop-loop start
 ```
 
-Commands are `/sliced-loop-<name>`. Run the loop from a terminal:
-
-```
-python3 /path/to/sliced-loop/scripts/loop.py --harness cursor --every 15m                  # stops after 5 idle ticks
-python3 /path/to/sliced-loop/scripts/loop.py --harness cursor --every 15m --idle-ticks 10  # ...or after 10; 0 never stops
-```
+Commands are `/sliced-loop-<name>`.
 
 As on Gemini CLI, the specialists and `research` run as separate headless
 sessions (`agent -p`), for the same reason.
 
-### The terminal loop
+### The loop
 
-`loop.py` checks the board itself, which costs no model call. It starts a
-headless `supervise` session only when a tick has something to do: a change, an
-idle agent with ready work, or a dead claim. Ctrl-C stops it, and a running
-tick is allowed to finish.
+Start it from chat with the `loop` command. It runs in the background, outside
+your conversation, and keeps going after the chat ends:
 
-The headless command it runs for each harness can be overridden in
-`.sliced-loop.json`, for example to pick a model:
+| arguments | what it does |
+|-----------|--------------|
+| *(none)* or `start` | start it: a tick every 15 minutes, stopping after 5 idle ticks |
+| `start <every>` | with that time between ticks: `90s`, `10m`, `1h` |
+| `start <every> <idle-ticks>` | …and stop after that many idle ticks in a row; `0` never stops |
+| `stop` | stop it; a running tick finishes first |
+| `status` | whether it's running, its settings, and its latest tick lines |
+
+For example, `/sliced-loop:loop start 10m 8`. It's the same as running
+`loop.py --harness <yours> --every 10m --idle-ticks 8 --detach` from a terminal.
+Drop `--detach` to watch it in the foreground instead.
+
+Each tick runs outside your conversation, and a model runs only where judgment
+is needed:
+
+1. **Look.** A script checks the board, with no model call. Most ticks end here.
+2. **Mechanical moves.** The script sets tasks whose dependencies are done back
+   to `ready`.
+3. **Supervisor, only if needed.** Needed means work awaiting acceptance, a new
+   proposal, a question, or an agent with nothing ready. It gets a digest of
+   just those tasks, not the files. It isn't asked again about a task that
+   hasn't changed since.
+4. **Dispatch.** The script gives each idle agent its highest-priority ready
+   task, in its own fresh headless session, all at once. When they finish,
+   the next round goes out, up to six sessions a tick.
+
+Logs go to `<workspace>/.state/logs/`; the loop's own lines go to `loop.log`
+there. To pick a model or flags, override the headless command per harness in
+`.sliced-loop.json`:
 
 ```json
 "headless": { "gemini": ["gemini", "--yolo", "-m", "gemini-3-pro", "-p", "{prompt}"] }
 ```
+
+Headless sessions run unattended: `claude -p --permission-mode
+bypassPermissions`, `--yolo`, `--auto`, `--force`. The scope hook still confines
+every agent.
 
 ### When the loop stops
 
@@ -283,8 +296,7 @@ To change the limit:
 
 | where | how |
 |-------|-----|
-| one Claude Code loop | a number after the command: `/loop 15m /sliced-loop:supervise 10` |
-| one terminal loop | `loop.py … --idle-ticks 10` |
+| one loop | `loop start 15m 10`, or `loop.py … --idle-ticks 10` (in-session: `/loop 15m /sliced-loop:supervise 10`) |
 | the project's default | `"idle_ticks": 10` in `.sliced-loop.json` |
 
 `0` means never stop. The command line wins over the config, and the config
@@ -351,10 +363,11 @@ The **workspace** is the only place the engineers meet. It holds the backlog,
 each service's published API contract, the shared decisions every agent must
 honour, and a memory file per agent.
 
-The **loop** is one command (`/sliced-loop:supervise`) on a timer. Each tick
+The **loop** runs in the background, started with the `loop` command. Each tick
 reads what changed since the last one, so a quiet tick costs almost nothing —
-most of them are quiet. A tick with something in it recovers dead claims, calls
-the supervisor to review and triage, then wakes whoever has work.
+most of them are quiet. A tick with something in it makes the mechanical moves,
+calls the supervisor only if a decision is needed, then wakes whoever has work,
+each in a fresh session.
 
 A **task** is a Markdown file with frontmatter: owner, status, priority,
 dependencies, acceptance criteria, and a thread the agents append to. That file
@@ -388,8 +401,7 @@ Runtime state (the tick snapshot, anything cached later) goes in
 
 `harnesses` lists where agent files are generated; `agents.py sync --harness X`
 adds one. Other optional keys: `idle_ticks` (see [When the loop stops](#when-the-loop-stops)),
-`commit: false` to stop agents committing, and `headless` (see [The terminal
-loop](#the-terminal-loop)).
+`commit: false` to stop agents committing, and `headless` (see [The loop](#the-loop)).
 
 Any layout works, as long as no tree sits inside another or inside the
 workspace. The hook, the CLI, the board and every agent brief read this file
@@ -459,11 +471,12 @@ else — the plugin has no dependencies of its own.
 
 - **Bash is a guard rail, not a jail.** File tools are enforced exactly; shell
   commands are only pattern-checked, and a shell has routes text can't see.
-- **The loop lives in one session** and stops when that session closes. That's
-  the Claude session, or the terminal running `loop.py`. It also ends itself
-  after 5 idle ticks.
-- **Headless dispatch doesn't chain.** On Gemini CLI and Cursor, a finished
-  agent's next task waits for the next tick, not the same one.
+- **The loop is a background process on your machine.** It survives the chat,
+  but not a reboot, and ends itself after 5 idle ticks. `loop status` shows
+  whether it's running.
+- **Running `supervise` by hand on Gemini CLI or Cursor doesn't chain.** It
+  starts agents detached, so their next tasks wait for the next tick. `loop.py`
+  chains on every harness.
 - **A new agent needs a restart** on Claude Code, OpenCode and Codex, which load
   subagents at startup.
 - **Codex and Cursor output is built from their docs.** It hasn't been run

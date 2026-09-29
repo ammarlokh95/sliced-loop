@@ -128,9 +128,9 @@ def _root(h: str, root: Path) -> str:
 
 
 def _loop(h: str, root: Path) -> str:
-    if h == "claude":
-        return f"/loop 15m {_cmd(h, 'supervise')}"
-    return f'python3 "{root}/scripts/loop.py" --harness {h} --every 15m'
+    # The loop command starts loop.py in the background on every harness: its
+    # ticks run as fresh headless sessions, so nothing accumulates in the chat.
+    return f"{_cmd(h, 'loop')} start"
 
 
 COND = re.compile(r"<!-- if:([a-z,]+) -->\n?(.*?)<!-- endif -->\n?", re.S)
@@ -189,10 +189,11 @@ def sources(kind: str) -> list[Path]:
     return sorted((SRC / kind).glob("*.md"))
 
 
-def body_for(kind: str, name: str, h: str, root: Path = PLUGIN_ROOT) -> str:
-    """A rendered agent brief or command body, without frontmatter."""
+def body_for(kind: str, name: str, h: str, root: Path = PLUGIN_ROOT, absolute: bool = False) -> str:
+    """A rendered agent brief, command body or prompt, without frontmatter.
+    `absolute` for text sent as a prompt rather than installed as a file."""
     _, _, body = split(SRC / kind / f"{name}.md")
-    return render(body, h, root).lstrip("\n")
+    return render(body, h, root, absolute=absolute).lstrip("\n")
 
 
 # --- tree agents, from role templates ----------------------------------------
@@ -223,7 +224,7 @@ def render_role(name: str, spec: dict, h: str, root: Path = PLUGIN_ROOT) -> tupl
 def brief_for(name: str, h: str, root: Path = PLUGIN_ROOT, spec: dict | None = None) -> str:
     """A tree agent's brief, or a plugin agent's, rendered for harness `h`."""
     if name in PLUGIN_AGENTS:
-        return body_for("agents", name, h, root)
+        return body_for("agents", name, h, root, absolute=True)
     if spec is None:
         import tasklib
         spec = tasklib.AGENTS[name]

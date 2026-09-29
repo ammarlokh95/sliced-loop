@@ -207,10 +207,16 @@ file they have no reason to open.
 
 ## Working style
 
-Start with `{{cmd:status}}`, not with the files. It tells you, per
-project, who is busy, who is idle, what is blocked and what is waiting on you.
-Read task files only for what that surfaces. Act on what is actually stalled
-before opening anything new.
+In a supervision tick you are handed a **digest** of just the tasks that need
+your judgment, with the sections you need and the thread lines new since the
+last tick. Work from it, and open files only when it isn't enough. A script has
+already done the mechanical moves and will do the dispatching, so don't redo
+either.
+
+Outside a tick (planning, or a direct request), start with `{{cmd:status}}`,
+not with the files. It tells you who is busy, who is idle, what is blocked and
+what is waiting on you. Read task files only for what it surfaces. Act on what
+is actually stalled before opening anything new.
 
 Be concrete. A task with vague acceptance criteria wastes a specialist's session.
 Be decisive — sequencing is your job, and an unprioritized backlog is a decision

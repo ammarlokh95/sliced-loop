@@ -45,7 +45,24 @@ The mode is set per harness in `build.HARNESSES`, and the whole design rests on 
   - Only `supervisor` ships as a subagent on these two.
   - `scripts/dispatch.py` starts each tree agent as its own detached process, with `SLICED_LOOP_AGENT` set. It also sets `GEMINI_CLI_SLICED_LOOP_AGENT`, which survives Gemini's env redaction.
   - `dispatch.py` refuses a busy agent, using a pid lock in `.state/running/` and live `in-progress` claims.
-- `scripts/loop.py` is the tick driver for every harness except Claude, which has `/loop`. It checks the board with no model call and runs a headless supervise session only when there is work. Both it and `dispatch.py` take per-harness command overrides from the `headless` key in `.sliced-loop.json`.
+- `scripts/loop.py` is the tick driver for **every** harness, Claude included (`claude -p --agent`). Ticks run outside the user's conversation.
+  - Users start it from chat with the `loop` command (`src/commands/loop.md`: `start [every] [idle-ticks]`, `stop`, `status`), which maps to `loop.py --detach`/`--stop`/`--status`.
+  - A detached loop runs in its own session and logs to `.state/logs/loop.log`. `.state/loop.json` records its pid and settings and is the single-instance lock.
+  - `--stop` sends SIGTERM, and the loop exits after its current tick. A new loop resets the idle count.
+  - `dispatch.agent_env` drops `CLAUDECODE`, so `claude -p` children of a loop started from a Claude session don't act as nested sessions. Both it and `dispatch.py` take per-harness command overrides from the `headless` key in `.sliced-loop.json`. The in-session `/loop` + `supervise` path still works, but costs more.
+
+### The tick (`scripts/tick.py`) — keep the model out of bookkeeping
+
+- `tick.plan()` is the tick, worked out without a model:
+  - It diffs the task files against `.state/tick.snapshot.json`, which is separate from the `changes` command's snapshot.
+  - It makes the mechanical moves (`blocked` → `ready` once every `depends_on` is done and no `needs-access` is pending).
+  - It computes dispatch: each non-busy agent gets its highest-priority `ready` task whose dependencies are done, or a resume of its STALE claim.
+  - It lists the reasons the supervisor is needed: a review, a newly proposed task, a question in a blocked thread, or an agent with nothing ready but proposed work.
+- The supervisor never names agents to dispatch. It steers through status and priority, and `tick.next` re-reads the board after it.
+- The supervisor gets `digest()`: only the relevant sections plus the thread lines new since the snapshot. `src/prompts/tick.md` holds its instructions and is rendered with absolute paths, because the prompt is sent as text.
+- `.state/presented.json` records the version of each task the supervisor was shown. An unchanged task never re-summons it. Without that, a review it leaves open would call it every tick and the loop would never go idle.
+- `loop.py` runs `plan(peek)` → `plan()` → the supervisor if needed → rounds of `dispatch.run_task` in threads, up to 6 sessions. Mid-tick it re-plans with `advance=False`, so agent changes stay "new" for the next tick.
+- `dispatch.is_native()` decides whether the harness loads the agent by name: Claude via `--agent` (plugin agents as `sliced-loop:<name>`), and OpenCode via `--agent`. Otherwise the rendered brief is sent as the prompt.
 
 ### Config is the single source of truth for paths
 
@@ -115,6 +132,7 @@ python3 scripts/build.py [--check | <harness>…]   # render src/ (Claude to the
 python3 scripts/install.py <harness> [--project DIR] [--uninstall]
 python3 scripts/dispatch.py --harness H <agent> <task-id> [--resume BRIEF] [--wait]
 python3 scripts/loop.py --harness H [--every 15m] [--idle-ticks N] [--once]
+python3 scripts/tick.py plan [--peek] [--harness H] [--json] | next   # one tick's plan / who to dispatch
 python3 scripts/tasks.py tick quiet|active [--limit N]   # the idle counter both loops use
 python3 scripts/repos.py status|init [--split-tracked]     # one repository per tree
 python3 scripts/commit.py <agent> [task-id] [--dry-run]    # commit only that agent's files
