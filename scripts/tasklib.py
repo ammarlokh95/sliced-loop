@@ -192,7 +192,12 @@ def _write_atomic(path: Path, text: str) -> None:
         raise
 
 
-def move_task(task_id: str, new_status: str) -> dict:
+def set_status(task_id: str, new_status: str, note: str) -> dict:
+    """Move a task and record why in its thread — for the loop's own moves."""
+    return move_task(task_id, new_status, note=note)
+
+
+def move_task(task_id: str, new_status: str, note: str | None = None) -> dict:
     if new_status not in STATUSES:
         return {"ok": False, "error": f"unknown status {new_status!r}"}
 
@@ -214,7 +219,8 @@ def move_task(task_id: str, new_status: str) -> dict:
     today = date.today().isoformat()
     frontmatter = _set_field(frontmatter, "status", new_status)
     frontmatter = _set_field(frontmatter, "updated", today)
-    body = _append_thread(body, f"- {today} board: {old_status} → {new_status} (manual override)")
+    line = f"- {today} {note}" if note else f"- {today} board: {old_status} → {new_status} (manual override)"
+    body = _append_thread(body, line)
 
     _write_atomic(path, f"---\n{frontmatter}\n---\n\n{body.lstrip()}")
     return {"ok": True, "id": task_id, "from": old_status, "to": new_status}

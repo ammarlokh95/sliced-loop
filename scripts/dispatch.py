@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
-"""Start one specialist agent as its own headless session.
+"""Start one agent as its own headless session.
 
-    dispatch.py --harness H <agent> <task-id> [--resume BRIEF] [--wait]
+    dispatch.py --harness H <agent> <task-id> [--resume [BRIEF]] [--wait]
     dispatch.py --harness H research --question Q [--wait]
 
-For harnesses whose hooks cannot tell which subagent is acting (Gemini CLI,
-Cursor), a specialist cannot safely run as a subagent: its scope would go
-unenforced. Here it runs as a separate process instead, with SLICED_LOOP_AGENT
-set, which the scope hook reads. The session gets the agent's rendered brief
-and one task, does it, and exits — one task per session, as everywhere else.
+Each agent runs as its own process with SLICED_LOOP_AGENT set, which the scope
+hook reads, so its scope holds on every harness — including Gemini CLI and
+Cursor, whose hooks cannot tell which subagent is acting. The session gets its
+brief and one task, does it, and exits: one task per session, and a fresh
+context every time. loop.py uses this for every agent on every harness.
+
+Where the harness can load an agent by name — Claude Code (`claude -p
+--agent`) and OpenCode (`opencode run --agent`) — and the agent is registered,
+it does; otherwise the rendered brief is sent as the prompt.
 
 By default the session is detached and this returns at once, logging to
 `<workspace>/.state/logs/`. `--wait` runs it in the foreground.
@@ -40,7 +44,11 @@ import config as cfg_module  # noqa: E402
 import tasklib  # noqa: E402
 
 AGENTS = (*tasklib.OWNERS, "research", "supervisor")
-MODEL_FLAG = {"opencode": "--model", "codex": "--model", "gemini": "--model", "cursor": "--model"}
+MODEL_FLAG = {"claude": "--model", "opencode": "--model", "codex": "--model",
+              "gemini": "--model", "cursor": "--model"}
+RESUME = ("Your own earlier session on this task died mid-task and its claim went stale; its work "
+          "is on disk. Before changing anything, find out how far it got: read the task's thread and "
+          "run your tree's checks (tests, typecheck, lint, build).")
 
 
 # --- headless commands ------------------------------------------------------
@@ -50,6 +58,10 @@ def _cursor_bin() -> str:
 
 
 def default_command(harness: str, root: Path, agent: str | None) -> list[str]:
+    if harness == "claude":
+        # Unattended, like --yolo elsewhere. The scope hook still runs and still denies.
+        cmd = ["claude", "-p", "--permission-mode", "bypassPermissions"]
+        return cmd + (["--agent", agent] if agent else []) + ["{prompt}"]
     if harness == "opencode":
         cmd = ["opencode", "run", "--auto", "--dir", str(root)]
         return cmd + (["--agent", agent] if agent else []) + ["{prompt}"]
@@ -59,19 +71,19 @@ def default_command(harness: str, root: Path, agent: str | None) -> list[str]:
         return ["gemini", "--yolo", "-p", "{prompt}"]
     if harness == "cursor":
         return [_cursor_bin(), "-p", "--force", "--trust", "--workspace", str(root), "{prompt}"]
-    raise SystemExit(f"{harness} runs its agents in-session — use its supervise command instead")
+    raise SystemExit(f"unknown harness {harness!r}")
 
 
 def command_for(harness: str, root: Path, agent: str | None, prompt: str,
                 native: bool = False) -> list[str]:
-    """The headless command for `agent` (None: a supervise tick). `native`: the
-    harness loads the agent's brief itself from its name (OpenCode)."""
+    """The headless command for `agent` (None: a bare session). `native`: the
+    harness loads the agent's brief itself from its name."""
     try:
         declared = json.loads((root / cfg_module.CONFIG_NAME).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         declared = {}
     custom = (declared.get("headless") or {}).get(harness)
-    template = list(custom or default_command(harness, root, agent if native else None))
+    template = list(custom or default_command(harness, root, native_name(harness, agent) if native else None))
     if "{prompt}" not in template:
         raise SystemExit(f'headless command for {harness} has no "{{prompt}}" placeholder')
     # The agent's own model, unless a custom command already names one.
@@ -96,6 +108,22 @@ def agent_env(agent: str | None, root: Path) -> dict:
     return env
 
 
+def native_name(harness: str, agent: str | None) -> str | None:
+    # Claude Code namespaces a plugin's own agents.
+    if agent and harness == "claude" and agent in build.PLUGIN_AGENTS:
+        return f"{build.PREFIX}:{agent}"
+    return agent
+
+
+def is_native(harness: str, agent: str) -> bool:
+    """Can the harness load this agent by name? The plugin's own agents are
+    installed with it; tree agents are registered by agents.py sync."""
+    folder = {"claude": ".claude/agents", "opencode": ".opencode/agents"}.get(harness)
+    if folder is None:
+        return False
+    return agent in build.PLUGIN_AGENTS or (tasklib.ROOT / folder / f"{agent}.md").is_file()
+
+
 # --- prompts ----------------------------------------------------------------
 
 def prompt_for(harness: str, agent: str, task: str | None, resume: str | None,
@@ -118,9 +146,8 @@ def prompt_for(harness: str, agent: str, task: str | None, resume: str | None,
                      "report in five lines, and stop. "
                      "One task only — this session ends when it is done.")
     if resume:
-        parts.append("\n**This is a resume.** Your own earlier session on this task was killed "
-                     "mid-task; its work is intact on disk. What the supervisor verified just now:\n\n"
-                     f"{resume}\n\n"
+        extra = "" if resume == RESUME else f"\n\nWhat was verified just now:\n\n{resume}"
+        parts.append("\n**This is a resume.** " + RESUME + extra + "\n\n"
                      "Do not start over, do not rebuild, and do not second-guess the stack your "
                      "earlier session chose — that session was you, and its decisions stand. Do not "
                      "tick any acceptance criterion you have not verified yourself in this session.")
@@ -156,7 +183,7 @@ def live_claim(agent: str) -> dict | None:
 # --- main -------------------------------------------------------------------
 
 def launch(harness: str, agent: str, prompt: str, *, wait: bool, label: str,
-           native_agent: bool) -> int:
+           native_agent: bool, quiet: bool = False) -> int:
     root = tasklib.ROOT
     argv = command_for(harness, root, agent, prompt, native=native_agent)
     if not shutil.which(argv[0]):
@@ -182,16 +209,45 @@ def launch(harness: str, agent: str, prompt: str, *, wait: bool, label: str,
         return 0
     code = proc.wait()
     lock.unlink(missing_ok=True)
-    print(f"{agent} on {label} exited {code} — log: {rel}")
+    if not quiet:
+        print(f"{agent} on {label} exited {code} — log: {rel}")
     return code
+
+
+def run_task(harness: str, agent: str, task: str, resume: bool = False) -> tuple[int, str]:
+    """Run one agent on one task in the foreground, as loop.py does.
+    Returns (exit code, the log's last line)."""
+    native = is_native(harness, agent)
+    prompt = prompt_for(harness, agent, task, RESUME if resume else None, None, native)
+    code = launch(harness, agent, prompt, wait=True, label=task, native_agent=native, quiet=True)
+    return code, last_line(agent, task)
+
+
+def run_supervisor(harness: str, tick_text: str) -> tuple[int, str]:
+    """One supervisor session on this tick's digest."""
+    native = is_native(harness, "supervisor")
+    brief = "" if native else ("You are the `supervisor` agent. Your brief:\n\n"
+                               + build.brief_for("supervisor", harness).strip() + "\n\n---\n\n")
+    code = launch(harness, "supervisor", brief + tick_text, wait=True, label="tick",
+                  native_agent=native, quiet=True)
+    return code, last_line("supervisor", "tick")
+
+
+def last_line(agent: str, label: str) -> str:
+    logs = sorted((tasklib.state_dir() / "logs").glob(f"*-{agent}-{label}.log"))
+    if not logs:
+        return ""
+    lines = [l for l in logs[-1].read_text(encoding="utf-8", errors="replace").splitlines() if l.strip()]
+    return lines[-1][:160] if lines else ""
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--harness", required=True, choices=[h for h in build.HARNESSES if h != "claude"])
+    parser.add_argument("--harness", required=True, choices=list(build.HARNESSES))
     parser.add_argument("agent", choices=AGENTS)
     parser.add_argument("task", nargs="?", help="task ID, e.g. FE-004")
-    parser.add_argument("--resume", metavar="BRIEF", help="re-dispatch a STALE claim with this resume brief")
+    parser.add_argument("--resume", metavar="BRIEF", nargs="?", const=RESUME,
+                        help="re-dispatch a STALE claim, optionally with what you verified")
     parser.add_argument("--question", help="the research question, verbatim")
     parser.add_argument("--wait", action="store_true", help="run in the foreground")
     args = parser.parse_args()
@@ -215,11 +271,7 @@ def main() -> int:
         print(f"refused: no task with id {args.task!r}", file=sys.stderr)
         return 2
 
-    # `opencode run --agent` loads the brief itself — if the agent is registered:
-    # the plugin's own agents are installed user-wide, tree agents by agents.py sync.
-    native = args.harness == "opencode" and (
-        args.agent in build.PLUGIN_AGENTS
-        or (tasklib.ROOT / ".opencode" / "agents" / f"{args.agent}.md").is_file())
+    native = is_native(args.harness, args.agent)
     prompt = prompt_for(args.harness, args.agent, args.task, args.resume, args.question, native)
     label = args.task or ("question" if args.agent == "research" else "tick")
     return launch(args.harness, args.agent, prompt, wait=args.wait, label=label, native_agent=native)

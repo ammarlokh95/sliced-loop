@@ -1,148 +1,87 @@
 ---
-description: One supervision tick — review changes, recover dead claims, dispatch the next task
+description: One supervision tick — make the mechanical moves, call the supervisor only if needed, dispatch
 argument-hint: "[idle ticks before the loop ends — default 5, 0 = never]"
 ---
 
-One supervision tick. Keep it cheap: most ticks should do nothing and say so in
-a single line.
+One supervision tick, run by hand. The terminal loop runs the same tick without
+a conversation to fill:
 
-## 1. Look
+```
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" --harness claude --every 15m
+```
+
+A script works out most of the tick. Act only on what it can't decide, and keep
+every reply to a line or two: in an in-session loop, everything you print lands
+in this conversation again on every tick.
+
+## 1. Plan
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/tasks.py" changes
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/tasks.py" status
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/tick.py" plan --harness claude
 ```
 
-If `status` starts with **`MIGRATE`**, the project predates per-tree agents.
-Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agents.py" migrate --harness claude` before
-anything else. If it starts with **`SYNC`**, run
-`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agents.py" sync`. In both cases, if the harness registers
-agents at startup, tell the user to restart it and end the tick: an agent
-written now can't be spawned in this session.
+It makes the mechanical moves itself: it unblocks tasks whose dependencies are
+done. Then it prints the changes, who to dispatch, and whether the supervisor
+is needed.
 
-`changes` reports only what is new since the previous tick and then advances its
-snapshot, so anything it prints is genuinely new.
+- **`MIGRATE`**: run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agents.py" migrate --harness claude`.
+  Tell the user to restart the harness if it registers agents at startup, and
+  end the tick.
+- **`SYNC`**: run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/agents.py" sync`, then do the same.
+- **`QUIET`**: nothing to do. Say so in one line and end the tick. Don't read
+  task files, spawn anything or narrate.
 
-## 2. Decide whether to stop here
+  First record the quiet tick. If `$ARGUMENTS` is a number, pass it as the limit:
 
-If `changes` says `no changes` **and** `status` shows no idle agent with a ready
-task waiting **and** nothing `STALE`, there is nothing to do. Say so in one line
-and end the tick. Do not spawn anything, do not read task files, do not narrate.
+  ```bash
+  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/tasks.py" tick quiet            # or: tick quiet --limit <N>
+  ```
 
-First record the quiet tick. If `$ARGUMENTS` is a number, pass it as the limit:
+  Put the count it prints in your line. When it prints **`STOP`**, end the loop
+  that runs this command. A `/loop` with an interval is a scheduled job: find
+  it with `CronList` and delete it with `CronDelete`. A self-paced `/loop` ends
+  when you call `ScheduleWakeup` with `stop: true`. Delete only that job.
+
+## 2. Supervisor, only if needed
+
+If it printed **`SUPERVISOR not needed`**, skip this step. Don't spawn the
+supervisor to look around.
+
+If it printed **`SUPERVISOR needed`**, spawn the `sliced-loop:supervisor` agent. Pass it
+everything from `DIGEST` to the end of the output, verbatim: the digest of the
+tasks it must decide, and its instructions for the tick. Don't add files or
+summaries of your own. The digest is what keeps its session small.
+
+## 3. Dispatch
+
+After the supervisor, if it ran, get the dispatch list again, since its
+decisions change it:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/tasks.py" tick quiet            # or: tick quiet --limit <N>
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/tick.py" next
 ```
 
-It counts consecutive idle ticks and puts the count in your one line, e.g.
-`idle tick 2 of 5`. A quiet tick while a specialist is mid-task isn't idle, so
-it resets the count instead. **When it prints `STOP`**, nothing has moved for
-that many ticks and nobody is working, so end the loop that runs this command:
+Each `DISPATCH <agent> <task>` line is an agent that isn't busy, with its
+highest-priority ready task. Wake exactly those and no others.
 
-- A `/loop` with an interval runs as a scheduled job. Find the one whose prompt
-  runs this supervise command with `CronList`, and delete it with `CronDelete`.
-- A self-paced `/loop` ends when you call `ScheduleWakeup` with `stop: true`.
+Spawn each one, concurrently, with its task ID and a reminder to follow the
+session loop in its brief: read its memory file, claim the task, complete it,
+update memory, commit, report, and stop.
 
-Delete only the job that runs this command, never another one. Then say in one
-line that the loop stopped after that many idle ticks, and that this starts it
-again:
+A line marked **`(resume)`** is a claim whose session died.
+Tell that agent: its earlier session on this task died mid-task and the work is
+on disk. It must read the thread and run its checks before changing anything,
+not start over, and not tick any criterion it hasn't verified itself.
 
-```
-/loop 15m /sliced-loop:supervise
-```
+When an agent returns, run `tick.py next` again and dispatch what it lists. Stop
+after **six agent sessions** in this tick, when it lists nothing, or when
+`tick.py plan --peek` says the supervisor is needed again.
 
-Quiet ticks are the normal case. Keeping them near-free is what lets this run
-all day.
+## 4. Report
 
-## 3. Recover abandoned claims
-
-`status` reports an agent as **`STALE`** when a task is `in-progress` but
-nothing — not the task file, not a single file in that agent's tree — has been
-touched for longer than an agent session runs. That claim belongs to a session
-that died: a rate limit, a crash, a closed terminal.
-
-**A `STALE` agent is not busy. Re-dispatch it.** The "never wake a BUSY agent"
-rule does not apply — there is no session to collide with, and left alone the
-board reports it busy forever and the task is never dispatched again. This is
-the failure that silently ends a long run.
-
-Handle it before anything else, because the agent is idle in reality and the
-board is lying about it:
-
-1. **Find out how far it got.** Run that tree's own checks — tests, typecheck,
-   lint, build — and read the task's `## Thread`. Work on disk and passing is
-   work to build on.
-2. **Leave `status: in-progress` alone.** The claim is being transferred to a
-   fresh session, not withdrawn.
-3. **Dispatch with a resume brief**: this is a resume of its own earlier session
-   that was killed mid-task, the work is intact on disk, here is what you
-   verified passing just now, here is what remains. Tell it **not to start over,
-   not to rebuild, and not to second-guess the stack its earlier session chose**
-   — that session was itself and its decisions stand.
-4. If the checks show it barely started, say so — then it is a restart in
-   practice and the agent should be told that instead.
-
-A resumed session is where a task is most likely to be marked complete on the
-strength of the previous session's momentum. Tell it not to tick any acceptance
-criterion it has not verified itself.
-
-## 4. Review the changes
-
-If anything changed, spawn the `sliced-loop:supervisor` agent with the exact output of both
-commands, and ask it to:
-
-- accept `review` → `done` against the acceptance criteria, triage `proposed` →
-  `ready` with a priority, answer questions sitting in the `## Thread` of
-  anything `blocked`, and unblock what the change has unblocked
-- respect the sovereignty rules in its own brief: it judges what and when, never
-  how
-- **verify its own writes before reporting** — re-read each file after editing
-  and report only what it has confirmed on disk. A reported-but-unwritten
-  acceptance is worse than an unmade one, because nothing downstream notices.
-- end with a dispatch decision, one line per tree agent (every agent in
-  `agents.py list`), in exactly this shape:
-
-```
-DISPATCH: frontend FE-004 — <one line on why this is next>
-DISPATCH: backend none — <one line on why nothing>
-DISPATCH: mobile MO-002 — <one line on why this is next>
-```
-
-The supervisor decides; you carry the decision out. A tick where it only triages
-and dispatches nothing is a normal tick.
-
-## 5. Wake the agents it named
-
-Spawn each named agent with its task ID and a reminder to follow the session
-loop in its brief: read its memory file, claim the task, complete it, update
-memory, commit, report, and stop.
-
-- **Never wake an agent reported `BUSY`** — it is mid-task and a second session
-  on the same tree would collide. `STALE` is not `BUSY`.
-- **Never wake an agent the supervisor did not name.**
-- One task per session. The agent stops after one; that is deliberate, it is how
-  its context gets discarded between tasks.
-- Run every named dispatch concurrently — different trees do not collide.
-
-## 6. Keep going while there is work
-
-When an agent returns and more work of its own is `ready`, dispatch a fresh
-session straight away rather than waiting for the next tick — that fresh session
-is the point, not the wait.
-
-Stop dispatching within a tick when any of these is true: **six agent sessions**
-have run, nothing is `ready` for an idle agent, or something needs the
-supervisor's judgment again (a task hit `review` or `blocked`, or a new
-`proposed` task appeared).
-
-## 7. Report
-
-One short line: what changed, what was accepted or triaged, who you woke and on
-what. If `status` lists anything **waiting on a human**, a task blocked on access
-only a human can grant, add a second line naming it and what it needs. That is
-the one thing a tick can't do for itself. If nothing happened: "no changes, every agent idle with nothing ready".
-Keep it terse — this line lands in your own context on every tick.
+One line: what was accepted or triaged, who was woken and on what. If the plan
+listed anything **`WAITING`** on a human for access, add a second line naming
+it.
 
 A tick that got this far did something, so reset the idle count:
 

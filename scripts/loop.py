@@ -1,20 +1,25 @@
 #!/usr/bin/env python3
-"""The supervision loop, for harnesses without a built-in `/loop`.
+"""The supervision loop, run from a terminal, for every harness.
 
     loop.py --harness H [--every 15m] [--idle-ticks N] [--once]
 
-Claude Code runs the loop in-session (`/loop 15m /sliced-loop:supervise`). The
-other harnesses have no scheduler, so this drives it from a terminal: every
-interval it looks at the board itself, and only when there is something to do
-does it start a headless session running that harness's supervise command.
+Each tick runs outside your conversation, so nothing accumulates in it:
 
-The look is free — no model is called for a quiet tick, which is most of them.
-"Something to do" is the same rule the supervise command applies: a change in
-the task files, an idle agent with ready work, or a STALE claim.
+1. **Look** (no model): `tick.plan --peek`. A quiet tick ends here and costs
+   nothing — that is most of them.
+2. **Mechanical moves** (no model): tasks whose dependencies are done go back
+   to `ready`.
+3. **Supervisor, only if judgment is needed** — work awaiting acceptance, a
+   newly proposed task, a question, an agent with nothing ready. It runs as a
+   fresh headless session and gets a digest of just those tasks.
+4. **Dispatch** (no model decides it): each idle agent gets its highest-priority
+   ready task, or a resume of its dead claim, as its own fresh headless session.
+   They run at once; when they finish, the next round goes out — up to six
+   sessions a tick, or until something needs the supervisor again.
 
 The loop ends itself after N consecutive idle ticks (default 5, or `idle_ticks`
 in .sliced-loop.json; `--idle-ticks 0` never stops). A tick is idle only when it
-had nothing to do and no specialist is mid-task, so a long task does not end the
+had nothing to do and no agent is mid-task, so a long task does not end the
 loop under it. Anything that moves resets the count.
 
 Ctrl-C stops the loop; a tick already running is allowed to finish.
@@ -23,19 +28,21 @@ Ctrl-C stops the loop; a tick already running is allowed to finish.
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import os
 import re
-import subprocess
 import sys
 import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+import agents as agents_mod  # noqa: E402
 import build  # noqa: E402
 import config as cfg_module  # noqa: E402
 import dispatch  # noqa: E402
 import tasklib  # noqa: E402
+import tick as tickmod  # noqa: E402
 
 
 def parse_interval(text: str) -> int:
@@ -45,44 +52,59 @@ def parse_interval(text: str) -> int:
     return int(m.group(1)) * {"": 1, "s": 1, "m": 60, "h": 3600}[m.group(2)]
 
 
-def look() -> tuple[str, str]:
-    def run(*args: str) -> str:
-        return subprocess.run([sys.executable, str(HERE / "tasks.py"), *args],
-                              capture_output=True, text=True, cwd=str(tasklib.ROOT)).stdout.strip()
-    return run("changes", "--peek"), run("status")
+MAX_SESSIONS = 6  # agent sessions per tick, as the supervise command allows
 
 
-def has_work(changes: str, status: str) -> bool:
-    if changes != "no changes":
-        return True
-    return bool(re.search(r"^\S+\s+(STALE|IDLE    next up)", status, re.M))
+def run_round(harness: str, todo: list[dict]) -> list[str]:
+    """Run each dispatch as its own session, concurrently; one line per session."""
+    def one(d: dict) -> str:
+        code, last = dispatch.run_task(harness, d["agent"], d["task"], resume=d["resume"])
+        kind = " (resume)" if d["resume"] else ""
+        return f"{d['agent']} {d['task']}{kind} exit {code}" + (f": {last}" if last else "")
+    with ThreadPoolExecutor(max_workers=max(1, len(todo))) as pool:
+        return list(pool.map(one, todo))
 
 
 def tick(harness: str) -> tuple[bool, str]:
-    """(quiet, one-line summary)."""
-    changes, status = look()
-    human = re.search(r"^waiting on a human: (\S[^—]*)", status, re.M)
-    note = f"  ·  waiting on a human: {human.group(1).strip()} (see status)" if human else ""
-    if not has_work(changes, status):
-        return True, "quiet — no changes, nothing ready for an idle agent, nothing stale" + note
+    """(quiet, summary)."""
+    look = tickmod.plan(peek=True)
+    human = look["waiting_on_human"]
+    note = f"  ·  waiting on a human for access: {', '.join(human)} (see status)" if human else ""
+    for n in look["notices"]:
+        if n.startswith("MIGRATE"):
+            return False, n  # nothing can be dispatched safely until it is migrated
+    if look["quiet"]:
+        return True, "quiet — no changes, nothing to dispatch, nothing for the supervisor" + note
 
-    prompt = build.body_for("commands", "supervise", harness).replace(
-        "<ARGUMENTS>", "")  # the command takes no arguments
-    argv = dispatch.command_for(harness, tasklib.ROOT, None, prompt)
-    logs = tasklib.state_dir() / "logs"
-    logs.mkdir(parents=True, exist_ok=True)
-    log = logs / f"{time.strftime('%Y%m%d-%H%M%S')}-tick.log"
-    with open(log, "w", encoding="utf-8") as out:
-        code = subprocess.run(argv, cwd=str(tasklib.ROOT), env=dispatch.agent_env(None, tasklib.ROOT),
-                              stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT).returncode
-    tail = [l for l in log.read_text(encoding="utf-8", errors="replace").splitlines() if l.strip()][-1:]
-    summary = tail[0][:200] if tail else "(no output)"
-    return False, f"tick ran (exit {code}) — {summary}  [log: {log.relative_to(tasklib.ROOT)}]{note}"
+    lines: list[str] = [n for n in look["notices"]]
+    if any(n.startswith("SYNC") for n in look["notices"]):
+        agents_mod.sync(tasklib.CFG)  # fresh sessions load the new files at once
+        lines.append("synced the tree agent files")
+    plan = tickmod.plan()  # advances the snapshot; makes the mechanical moves
+    lines += [f"auto: {a['id']} -> ready ({a['why']})" for a in plan["auto"]]
+
+    if plan["supervisor"]:
+        code, last = dispatch.run_supervisor(harness, tickmod.render(plan, harness))
+        lines.append(f"supervisor ({'; '.join(plan['supervisor'])}) exit {code}" + (f": {last}" if last else ""))
+
+    sessions = 0
+    while sessions < MAX_SESSIONS:
+        todo = tickmod.dispatch_list(tasklib.load_tasks())[:MAX_SESSIONS - sessions]
+        if not todo:
+            break
+        lines += run_round(harness, todo)
+        sessions += len(todo)
+        # Mechanical moves again, without advancing: what the agents changed
+        # stays new for the next tick's supervisor. Ready work keeps going out
+        # meanwhile; a review or a question waits for that supervisor.
+        if tickmod.plan(advance=False)["supervisor"] and not any("next tick" in l for l in lines):
+            lines.append("the supervisor is needed again — next tick")
+    return False, "\n        ".join(lines) + note
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--harness", required=True, choices=[h for h in build.HARNESSES if h != "claude"])
+    parser.add_argument("--harness", required=True, choices=list(build.HARNESSES))
     parser.add_argument("--every", type=parse_interval, default=parse_interval("15m"))
     parser.add_argument("--idle-ticks", type=int, metavar="N",
                         help=f"end after N consecutive idle ticks (default: idle_ticks in "
