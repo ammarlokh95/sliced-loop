@@ -37,7 +37,7 @@ code — so nobody grades their own homework.
 - [Repositories and commits](#repositories-and-commits)
 - [What it creates](#what-it-creates)
 - [Requirements](#requirements)
-- [Limits worth knowing](#limits-worth-knowing)
+- [Limitations](#limitations)
 - [Upgrading](#upgrading)
 
 ## What it actually does
@@ -494,7 +494,7 @@ A few cases differ:
 Python 3 for the tooling. `run` assumes npm in both trees it starts. Nothing
 else — the plugin has no dependencies of its own.
 
-## Limits worth knowing
+## Limitations
 
 - **Bash is a guard rail, not a jail.** File tools are enforced exactly; shell
   commands are only pattern-checked, and a shell has routes text can't see.
