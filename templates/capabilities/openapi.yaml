@@ -1,7 +1,7 @@
-# Maintained by the backend agent. The published HTTP contract.
+# Maintained by the <agent> agent. Its published HTTP contract.
 openapi: 3.1.0
 info:
-  title: <project>
+  title: <project> — <agent>
   version: 0.0.0
   description: No endpoints published yet.
 paths: {}

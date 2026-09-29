@@ -11,10 +11,12 @@
 The rules live here once; each harness only differs in how it hands over the
 tool call and how it expects to hear "no".
 
-    frontend  read+write  <frontend>/ <workspace>/
-                          read-only: <workspace>/capabilities/, memory/backend.md
-    backend   read+write  <backend>/  <workspace>/
-                          read-only: memory/frontend.md
+    every source-tree agent named in .sliced-loop.json:
+              read+write  its own tree, <workspace>/
+              read-only:  the other agents' memory files, and every contract in
+                          <workspace>/capabilities/ except its own (a `service`
+                          writes capabilities/<its name>/; a `ui` writes none)
+              shell:      may not reference another agent's tree
     research  read        <workspace>/   write only <workspace>/research/
 
 Which agent is acting comes from the harness when it can say (Claude Code's
@@ -39,7 +41,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config as cfg_module  # noqa: E402
 
-SCOPED = ("frontend", "backend", "research")
+RESEARCH = "research"
 AGENT_ENV = "SLICED_LOOP_AGENT"
 ROOT_ENVS = ("SLICED_LOOP_ROOT", "CLAUDE_PROJECT_DIR", "GEMINI_PROJECT_DIR")
 
@@ -65,32 +67,37 @@ def load_layout(root: Path) -> dict:
     try:
         cfg = cfg_module.load(root)
     except SystemExit:
-        # Unreadable config: fall back to the defaults rather than failing open.
-        cfg = dict(cfg_module.DEFAULTS)
-    return {k: str(cfg[k]).strip().strip("/") for k in cfg_module.DEFAULTS}
+        # An unreadable config still confines the two classic agents, rather
+        # than failing open for them.
+        agents = cfg_module.parse_agents({})
+        return {"workspace": cfg_module.DEFAULTS["workspace"],
+                "agents": {n: a["path"] for n, a in agents.items()},
+                "roles": {n: a["role"] for n, a in agents.items()}}
+    return {"workspace": cfg["workspace"],
+            "agents": {n: a["path"] for n, a in cfg["agents"].items()},
+            "roles": {n: a["role"] for n, a in cfg["agents"].items()}}
 
 
 def rules(agent: str, layout: dict) -> dict:
-    fe, be, ws = layout["frontend"], layout["backend"], layout["workspace"]
-    if agent == "frontend":
-        return {
-            "read": [fe, ws], "write": [fe, ws],
-            "write_deny": rf"^{re.escape(ws)}/(capabilities(/|$)|memory/backend\.md$)",
-            "write_deny_why": f"the published API contract in {ws}/capabilities/ and the backend's memory file",
-            "shell_deny": [be],
-        }
-    if agent == "backend":
-        return {
-            "read": [be, ws], "write": [be, ws],
-            "write_deny": rf"^{re.escape(ws)}/memory/frontend\.md$",
-            "write_deny_why": "the frontend's memory file",
-            "shell_deny": [fe],
-        }
-    return {
-        "read": [ws], "write": [f"{ws}/research"],
-        "write_deny": "", "write_deny_why": "",
-        "shell_deny": [fe, be],
-    }
+    ws, trees = layout["workspace"], layout["agents"]
+    if agent == RESEARCH:
+        return {"read": [ws], "write": [f"{ws}/research"], "write_deny": [],
+                "shell_deny": list(trees.values())}
+
+    others = [n for n in trees if n != agent]
+    deny = []
+    if others:
+        names = "|".join(re.escape(n) for n in others)
+        deny.append((rf"^{re.escape(ws)}/memory/({names})\.md$", "another agent's memory file"))
+    if layout["roles"][agent] == "service":
+        # Its own contract only: capabilities/<agent>/.
+        deny.append((rf"^{re.escape(ws)}/capabilities(/(?!{re.escape(agent)}(/|$))|$)",
+                     f"published contracts other than your own ({ws}/capabilities/{agent}/)"))
+    else:
+        deny.append((rf"^{re.escape(ws)}/capabilities(/|$)",
+                     f"the published contracts in {ws}/capabilities/ — a ui agent consumes them"))
+    return {"read": [trees[agent], ws], "write": [trees[agent], ws], "write_deny": deny,
+            "shell_deny": [trees[n] for n in others]}
 
 
 def _under(abs_path: str, root: Path, rels: list[str]) -> bool:
@@ -108,9 +115,11 @@ def _listing(rels: list[str]) -> str:
 def decide(agent: str, kind: str, root: Path, *, path: str = "",
            command: str = "", cwd: str = "") -> str | None:
     """None if the call is allowed, otherwise the reason it is not."""
-    if agent not in SCOPED:
+    if not agent:
         return None
     layout = load_layout(root)
+    if agent != RESEARCH and agent not in layout["agents"]:
+        return None  # the main thread, the supervisor, anything unrecognised
     r = rules(agent, layout)
     ws = layout["workspace"]
 
@@ -124,14 +133,15 @@ def decide(agent: str, kind: str, root: Path, *, path: str = "",
             return (f"Out of scope: the {agent} agent may {kind} only within {_listing(allowed)}. "
                     f"Blocked: {abs_path}. If this needs work outside your scope, open a task in "
                     f"{ws}/tasks/ for the agent that owns it and mark yourself blocked on it.")
-        if kind == "write" and r["write_deny"]:
+        if kind == "write":
             rel = os.path.relpath(abs_path, os.path.realpath(root))
-            if re.search(r["write_deny"], rel):
-                return (f"Read-only for the {agent} agent: {r['write_deny_why']}. Blocked write: {rel}. "
-                        f"If it is wrong, raise it in a task rather than editing it.")
+            for pattern, why in r["write_deny"]:
+                if re.search(pattern, rel):
+                    return (f"Read-only for the {agent} agent: {why}. Blocked write: {rel}. "
+                            f"If it is wrong, raise it in a task rather than editing it.")
         return None
 
-    if kind == "shell" and command:
+    if kind == "shell" and command and r["shell_deny"]:
         dirs = "|".join(re.escape(d) for d in r["shell_deny"])
         if re.search(rf"(^|[^A-Za-z0-9_.-])\.{{0,2}}/?({dirs})(/|$)", command, re.M):
             names = " or ".join(f"{d}/" for d in r["shell_deny"])
@@ -150,6 +160,16 @@ def _get(d: dict, *keys: str) -> str:
         if isinstance(v, str) and v:
             return v
     return ""
+
+
+PLUGIN_PREFIX = "sliced-loop:"
+
+
+def agent_name(raw: str) -> str:
+    """Claude Code reports a plugin's subagent by its scoped name, e.g.
+    `sliced-loop:research`. Tree agents are project agents and arrive bare."""
+    raw = (raw or "").strip()
+    return raw[len(PLUGIN_PREFIX):] if raw.startswith(PLUGIN_PREFIX) else raw
 
 
 def _env_agent() -> str:
@@ -267,7 +287,8 @@ def cmd_hook(harness: str) -> int:
     except ValueError:
         return allow()
     agent, kind, path, command, cwd = parse(payload)
-    if agent not in SCOPED or not kind:
+    agent = agent_name(agent)
+    if not agent or not kind:
         return allow()
     root = find_root(cwd or os.getcwd())
     if root is None:
@@ -287,7 +308,7 @@ def cmd_hook(harness: str) -> int:
 
 
 def cmd_check(args: argparse.Namespace) -> int:
-    agent = args.agent or _env_agent()
+    agent = agent_name(args.agent or _env_agent())
     root = find_root(args.cwd or os.getcwd())
     if root is None:
         return 0

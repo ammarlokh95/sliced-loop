@@ -135,8 +135,6 @@
   <span class="spacer"></span>
   <div class="filters" id="filters">
     <button data-owner="" aria-pressed="true">All</button>
-    <button data-owner="frontend" aria-pressed="false">Frontend</button>
-    <button data-owner="backend" aria-pressed="false">Backend</button>
   </div>
   <span class="pulse" id="pulse" title="synced"></span>
 </header>
@@ -162,19 +160,34 @@ const STATUS_LABEL = {
   "blocked": "Blocked", "review": "Review", "done": "Done",
 };
 
-let state = { statuses: [], tasks: [] };
+let state = { statuses: [], agents: [], tasks: [] };
 let ownerFilter = "";
 let dragging = null;
 let openKey = null;
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const ownerVar = (o) => (o === "backend" ? "var(--be)" : "var(--fe)");
+// Cards take their owner's role colour: services one hue, UIs the other.
+const ownerVar = (o) =>
+  (state.agents.find((a) => a.name === o)?.role === "service" ? "var(--be)" : "var(--fe)");
+
+// One filter per agent, rebuilt when the roster changes.
+let filterKey = "";
+function renderFilters() {
+  const key = state.agents.map((a) => a.name).join(",");
+  if (key === filterKey) return;
+  filterKey = key;
+  if (ownerFilter && !state.agents.some((a) => a.name === ownerFilter)) ownerFilter = "";
+  $("filters").innerHTML = [{ name: "", label: "All" }, ...state.agents]
+    .map((a) => `<button data-owner="${esc(a.name)}" aria-pressed="${a.name === ownerFilter}">${esc(a.label ?? a.name)}</button>`)
+    .join("");
+}
 const keyOf = (t) => t.id;
 
 async function load() {
   const res = await fetch("/api/tasks");
   state = await res.json();
+  renderFilters();
   render();
   $("pulse").classList.add("on");
   setTimeout(() => $("pulse").classList.remove("on"), 400);

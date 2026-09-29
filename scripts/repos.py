@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Give the frontend and backend trees their own git repositories.
+"""Give every agent's source tree its own git repository.
 
     repos.py status               what each tree and the project root are now
-    repos.py init                 create what is missing; never touches tracked work
+    repos.py init [AGENT…]        create what is missing; never touches tracked work
     repos.py init --split-tracked also split out a tree the root repo already tracks
 
 The layout this sets up:
 
     <root>/            repository — .sliced-loop.json and the workspace
-    ├── <frontend>/    its own repository, ignored by the root one
-    └── <backend>/     its own repository, ignored by the root one
+    ├── <tree>/        one per agent in .sliced-loop.json: its own
+    └── <tree>/        repository, ignored by the root one
 
 Each specialist commits its code to its own repository, where nothing else
 writes. The shared workspace (backlog, memory, published contract) stays in the
@@ -61,14 +61,9 @@ def tree_state(root: Path, tree: Path) -> str:
 def ignore_in_root(root: Path, rels: list[str]) -> list[str]:
     """Add /<tree>/ lines to the root .gitignore; return the ones added."""
     path = root / ".gitignore"
-    text = path.read_text(encoding="utf-8") if path.is_file() else ""
-    have = {l.strip() for l in text.splitlines()}
-    new = [f"/{r}/" for r in rels if f"/{r}/" not in have and f"{r}/" not in have and f"/{r}" not in have]
-    if new:
-        block = ("\n" if text and not text.endswith("\n") else "") + \
-                "# own repositories (sliced-loop)\n" + "\n".join(new) + "\n"
-        path.write_text(text + block, encoding="utf-8")
-    return new
+    have = {l.strip() for l in path.read_text(encoding="utf-8").splitlines()} if path.is_file() else set()
+    wanted = [f"/{r}/" for r in rels if not {f"/{r}/", f"{r}/", f"/{r}"} & have]
+    return cfg_module.gitignore_add(root, "# source trees with their own repositories (sliced-loop)", wanted)
 
 
 def first_commit(repo: Path, message: str) -> str:
@@ -86,12 +81,12 @@ def cmd_status(cfg: dict) -> int:
     top = toplevel(root)
     where = "no repository" if top is None else ("repository" if top == root.resolve() else f"inside {top}")
     print(f"root      {where}")
-    for key in ("frontend", "backend"):
-        print(f"{key:9} {tree_state(root, cfg[f'{key}_path']):18} {cfg[key]}/")
+    for name, a in cfg["agents"].items():
+        print(f"{name:12} {tree_state(root, a['path_abs']):18} {a['path']}/")
     return 0
 
 
-def cmd_init(cfg: dict, split_tracked: bool) -> int:
+def cmd_init(cfg: dict, split_tracked: bool, only: list[str] | None = None) -> int:
     root = cfg["root"]
     code = 0
 
@@ -102,35 +97,38 @@ def cmd_init(cfg: dict, split_tracked: bool) -> int:
         print(f"root      initialised a repository at {root}")
 
     split = []
-    for key in ("frontend", "backend"):
-        tree, rel = cfg[f"{key}_path"], cfg[key]
+    for key, a in cfg["agents"].items():
+        if only and key not in only:
+            continue
+        tree, rel = a["path_abs"], a["path"]
         state = tree_state(root, tree)
         if state == "missing":
-            print(f"{key:9} {rel}/ does not exist — create it, then re-run")
+            print(f"{key:12} {rel}/ does not exist — create it, then re-run")
             code = 1
             continue
         if state == "own":
-            print(f"{key:9} {rel}/ already has its own repository — left alone")
+            print(f"{key:12} {rel}/ already has its own repository — left alone")
             split.append(rel)
             continue
         if state == "tracked-by-root":
             if not split_tracked:
-                print(f"{key:9} {rel}/ is tracked by the root repository — NOT split. Splitting it "
+                print(f"{key:12} {rel}/ is tracked by the root repository — NOT split. Splitting it "
                       f"removes it from the root repository's index; its history stays there. "
                       f"Re-run with --split-tracked once the user has agreed.")
                 code = 1
                 continue
             git(root, "rm", "-r", "-q", "--cached", "--", rel)
-            print(f"{key:9} removed {rel}/ from the root repository's index — commit that removal "
+            print(f"{key:12} removed {rel}/ from the root repository's index — commit that removal "
                   f"in the root repository")
         git(tree, "init", "-q")
-        print(f"{key:9} initialised {rel}/ — {first_commit(tree, f'Initial {key} tree')}")
+        print(f"{key:12} initialised {rel}/ — {first_commit(tree, f'Initial {key} tree')}")
         split.append(rel)
 
     if split:
         added = ignore_in_root(root, split)
         if added:
-            print(f"root      .gitignore now excludes {', '.join(added)} (they are their own repositories)")
+            print(f"root      .gitignore now excludes {', '.join(added)} — "
+                  f"{'it is its own repository' if len(added) == 1 else 'each is its own repository'}")
     return code
 
 
@@ -139,11 +137,17 @@ def main() -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("status")
     i = sub.add_parser("init")
+    i.add_argument("agents", nargs="*", help="only these agents' trees (default: all)")
     i.add_argument("--split-tracked", action="store_true",
                    help="also split out a tree the root repository tracks (ask the user first)")
     args = parser.parse_args()
     cfg = cfg_module.require()
-    return cmd_status(cfg) if args.cmd == "status" else cmd_init(cfg, args.split_tracked)
+    if args.cmd == "status":
+        return cmd_status(cfg)
+    unknown = [a for a in args.agents if a not in cfg["agents"]]
+    if unknown:
+        parser.error(f"no agent named {', '.join(unknown)} in {cfg_module.CONFIG_NAME}")
+    return cmd_init(cfg, args.split_tracked, args.agents)
 
 
 if __name__ == "__main__":

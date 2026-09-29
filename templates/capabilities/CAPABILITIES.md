@@ -1,9 +1,9 @@
-# Backend capabilities
+# <agent> capabilities
 
-Maintained by the **backend** agent. Read by the frontend agent as the contract.
+Maintained by the **<agent>** agent. Read by every other agent as the contract.
 Update this and `openapi.yaml` in the same change that ships an endpoint.
 
-_No capabilities yet — the backend has not shipped an endpoint._
+_No capabilities yet — <agent> has not shipped an endpoint._
 
 ## Endpoints
 

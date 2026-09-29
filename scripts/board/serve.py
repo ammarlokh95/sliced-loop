@@ -57,6 +57,7 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/tasks":
             return self._json(200, {
                 "statuses": tasklib.STATUSES,
+                "agents": [{"name": n, "role": a["role"]} for n, a in tasklib.AGENTS.items()],
                 "tasks": tasklib.load_tasks(),
             })
         self._json(404, {"error": "not found"})

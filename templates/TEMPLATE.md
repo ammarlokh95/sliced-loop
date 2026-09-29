@@ -1,12 +1,12 @@
 ---
-id: FE-000
+id: FE-000                # the owner's prefix — agents.py list shows them
 title: short imperative summary
-owner: frontend          # frontend | backend
+owner: frontend          # any agent in .sliced-loop.json
 status: proposed         # proposed | ready | in-progress | blocked | review | done
 priority: P2             # P0 urgent · P1 next · P2 normal · P3 someday
 created: 2026-09-20
 updated: 2026-09-20
-requested_by: supervisor # supervisor | frontend | backend | research
+requested_by: supervisor # supervisor | research | any agent
 depends_on: []           # e.g. [BE-004]
 ---
 
@@ -30,7 +30,7 @@ schema, response schema with field types, status codes, error shape.
 Frontend tasks only, when a design exists. Which entry in `design/DESIGN.md`
 this implements, and the exact frame, page or section, e.g.
 `checkout-flow — "Cart / mobile" (node-id=12-345)`. Leave it out when there is
-no design. The frontend agent then works from the acceptance criteria.
+no design. The UI agent then works from the acceptance criteria.
 
 ## Context
 

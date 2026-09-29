@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Commit one agent's work, and only that agent's.
 
-    commit.py <frontend|backend> <task-id>    after finishing a task
+    commit.py <agent> <task-id>               a source-tree agent, after a task
     commit.py research                        after writing a finding
     commit.py supervisor                      after a review, triage or plan
 
@@ -15,10 +15,8 @@ or `git commit -a` would sweep another agent's half-finished work into this
 commit. This stages and commits an explicit list of the files the agent owns,
 so a commit never carries anything else:
 
-    frontend    <frontend>/, memory/frontend.md, design/, and the task files
-                it owns or opened
-    backend     <backend>/, memory/backend.md, capabilities/, and the task
-                files it owns or opened
+    each agent  its tree, memory/<agent>.md, the task files it owns or opened,
+                and capabilities/<agent>/ for a `service` or design/ for a `ui`
     research    research/
     supervisor  PROJECT.md, memory/decisions.md, design/DESIGN.md, tasks/
 
@@ -49,7 +47,7 @@ sys.path.insert(0, str(HERE))
 import config as cfg_module  # noqa: E402
 import tasklib  # noqa: E402
 
-AGENTS = ("frontend", "backend", "research", "supervisor")
+AGENTS = (*tasklib.OWNERS, "research", "supervisor")
 
 
 def git(repo: Path, *args: str) -> subprocess.CompletedProcess:
@@ -83,8 +81,9 @@ def owned_paths(agent: str) -> list[Path]:
     if agent == "supervisor":
         return [ws / "PROJECT.md", ws / "memory" / "decisions.md", ws / "design" / "DESIGN.md",
                 ws / "tasks"]
-    paths = [tasklib.TREES[agent], ws / "memory" / f"{agent}.md",
-             ws / ("capabilities" if agent == "backend" else "design")]
+    role = tasklib.AGENTS[agent]["role"]
+    paths = [tasklib.TREES[agent], tasklib.memory_file(agent),
+             tasklib.contract_dir(agent) if role == "service" else ws / "design"]
     for t in tasklib.load_tasks():
         if t["owner"] == agent or t["requested_by"] == agent:
             paths.append(tasklib.tasks_dir() / t["file"])
@@ -204,7 +203,7 @@ def commit(repo: Path, files: list[str], msg: str) -> subprocess.CompletedProces
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("agent", choices=AGENTS)
-    parser.add_argument("task", nargs="?", help="the task ID, for frontend and backend")
+    parser.add_argument("task", nargs="?", help="the task ID, for a source-tree agent")
     parser.add_argument("--dry-run", action="store_true", help="show what would be committed")
     args = parser.parse_args()
 
