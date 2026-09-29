@@ -215,7 +215,7 @@ guessing.
 ## 7. Tell the user what happens next
 
 - `/sliced-loop:plan` turns a brief into a backlog of vertical slices
-- `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" --harness claude --every 15m` starts the supervision loop, which ends itself after 5 idle ticks
+- `/sliced-loop:loop start` starts the supervision loop, which ends itself after 5 idle ticks
   in a row. Change that with `idle_ticks` in `.sliced-loop.json`, and use `0` to
   never stop.
 - `/sliced-loop:status` shows the board state at any time

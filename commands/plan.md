@@ -144,5 +144,5 @@ read as the whole initial project — if it obviously does not cover the scope i
 `PROJECT.md`, say so rather than moving on.
 
 Then say plainly that the tasks are `proposed`, and that
-`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" --harness claude --every 15m` starts the loop that will triage and build
+`/sliced-loop:loop start` starts the loop that will triage and build
 them. Do not wake the specialists here: seeding is not dispatching.

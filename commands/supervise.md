@@ -3,11 +3,11 @@ description: One supervision tick — make the mechanical moves, call the superv
 argument-hint: "[idle ticks before the loop ends — default 5, 0 = never]"
 ---
 
-One supervision tick, run by hand. The terminal loop runs the same tick without
-a conversation to fill:
+One supervision tick, run by hand. The background loop runs the same tick
+without a conversation to fill:
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/loop.py" --harness claude --every 15m
+/sliced-loop:loop start
 ```
 
 A script works out most of the tick. Act only on what it can't decide, and keep

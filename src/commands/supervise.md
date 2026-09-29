@@ -3,8 +3,8 @@ description: One supervision tick — make the mechanical moves, call the superv
 argument-hint: "[idle ticks before the loop ends — default 5, 0 = never]"
 ---
 
-One supervision tick, run by hand. The terminal loop runs the same tick without
-a conversation to fill:
+One supervision tick, run by hand. The background loop runs the same tick
+without a conversation to fill:
 
 ```
 {{loop}}

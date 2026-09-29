@@ -149,7 +149,7 @@ The workflow is the same everywhere:
 
 1. `init` sets up the repository.
 2. `plan` turns a brief into a backlog covering the whole initial scope.
-3. The loop, `loop.py` in a terminal, ticks on an interval until the project
+3. `loop start` runs the supervision loop in the background until the project
    goes idle (see [The loop](#the-loop)).
 
 `plan` takes a brief in any of four forms. With no argument it reads
@@ -162,6 +162,7 @@ Everything else is optional:
 
 | command | what it does |
 |---------|--------------|
+| `loop` | start, stop or check the background loop (see [The loop](#the-loop)) |
 | `status` | who is busy, who is idle, what waits on the supervisor — and on you |
 | `changes` | what moved in the task files since the last check |
 | `board` | drag-and-drop board; a human move outranks the rules |
@@ -179,59 +180,43 @@ Only the command syntax and the loop differ between harnesses.
 /sliced-loop:plan ABC-123             # a Jira story or epic
 /sliced-loop:plan notes/brief.md      # a file
 /sliced-loop:plan "build a ..."       # prose
-```
-
-Then run the loop from a terminal in the repository:
-
-```
-python3 ~/.claude/plugins/cache/sliced-loop/sliced-loop/<version>/scripts/loop.py --harness claude --every 15m
+/sliced-loop:loop start               # the loop, in the background
 ```
 
 The other commands are `/sliced-loop:status`, `/sliced-loop:board` and so on.
-You can also loop inside your session, with `/loop 15m /sliced-loop:supervise`
-(add a number to change the idle limit). That costs more: every tick, and every
-report it gets back, stays in your conversation.
+You can also loop inside your session, with `/loop 15m /sliced-loop:supervise`.
+That costs more: every tick, and every report it gets back, stays in your
+conversation.
 
 ### OpenCode
 
 ```
 /sliced-loop-init
 /sliced-loop-plan notes/brief.md
+/sliced-loop-loop start
 ```
 
-Commands are `/sliced-loop-<name>`. Run the loop from a terminal in the
-repository:
-
-```
-python3 /path/to/sliced-loop/scripts/loop.py --harness opencode --every 15m
-```
+Commands are `/sliced-loop-<name>`.
 
 ### Codex
 
 ```
 $sliced-loop-init
 $sliced-loop-plan notes/brief.md
+$sliced-loop-loop start
 ```
 
-The commands are skills, invoked as `$sliced-loop-<name>`. Run the loop from a
-terminal:
-
-```
-python3 /path/to/sliced-loop/scripts/loop.py --harness codex --every 15m
-```
+The commands are skills, invoked as `$sliced-loop-<name>`.
 
 ### Gemini CLI
 
 ```
 /sliced-loop:init
 /sliced-loop:plan notes/brief.md
+/sliced-loop:loop start
 ```
 
-The command names are the same as in Claude Code. Run the loop from a terminal:
-
-```
-python3 /path/to/sliced-loop/scripts/loop.py --harness gemini --every 15m
-```
+The command names are the same as in Claude Code.
 
 Gemini's hooks can't tell which subagent is acting, so a specialist never runs
 inside your session. Each one runs as its own headless session. It gets its
@@ -244,18 +229,30 @@ brief and one task, runs detached, and logs to `<workspace>/.state/logs/`.
 ```
 /sliced-loop-init
 /sliced-loop-plan notes/brief.md
+/sliced-loop-loop start
 ```
 
-Commands are `/sliced-loop-<name>`. Run the loop from a terminal:
-
-```
-python3 /path/to/sliced-loop/scripts/loop.py --harness cursor --every 15m
-```
+Commands are `/sliced-loop-<name>`.
 
 As on Gemini CLI, the specialists and `research` run as separate headless
 sessions (`agent -p`), for the same reason.
 
 ### The loop
+
+Start it from chat with the `loop` command. It runs in the background, outside
+your conversation, and keeps going after the chat ends:
+
+| arguments | what it does |
+|-----------|--------------|
+| *(none)* or `start` | start it: a tick every 15 minutes, stopping after 5 idle ticks |
+| `start <every>` | with that time between ticks: `90s`, `10m`, `1h` |
+| `start <every> <idle-ticks>` | …and stop after that many idle ticks in a row; `0` never stops |
+| `stop` | stop it; a running tick finishes first |
+| `status` | whether it's running, its settings, and its latest tick lines |
+
+For example, `/sliced-loop:loop start 10m 8`. It's the same as running
+`loop.py --harness <yours> --every 10m --idle-ticks 8 --detach` from a terminal.
+Drop `--detach` to watch it in the foreground instead.
 
 Each tick runs outside your conversation, and a model runs only where judgment
 is needed:
@@ -271,8 +268,8 @@ is needed:
    task, in its own fresh headless session, all at once. When they finish,
    the next round goes out, up to six sessions a tick.
 
-Logs go to `<workspace>/.state/logs/`. Ctrl-C stops the loop; a running tick
-finishes. To pick a model or flags, override the headless command per harness in
+Logs go to `<workspace>/.state/logs/`; the loop's own lines go to `loop.log`
+there. To pick a model or flags, override the headless command per harness in
 `.sliced-loop.json`:
 
 ```json
@@ -298,7 +295,7 @@ To change the limit:
 
 | where | how |
 |-------|-----|
-| one loop | `loop.py … --idle-ticks 10` (in-session: `/loop 15m /sliced-loop:supervise 10`) |
+| one loop | `loop start 15m 10`, or `loop.py … --idle-ticks 10` (in-session: `/loop 15m /sliced-loop:supervise 10`) |
 | the project's default | `"idle_ticks": 10` in `.sliced-loop.json` |
 
 `0` means never stop. The command line wins over the config, and the config

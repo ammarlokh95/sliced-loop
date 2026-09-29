@@ -128,9 +128,9 @@ def _root(h: str, root: Path) -> str:
 
 
 def _loop(h: str, root: Path) -> str:
-    # The terminal loop on every harness: its ticks run as fresh headless
-    # sessions, so nothing accumulates in the user's conversation.
-    return f'python3 "{_root(h, root)}/scripts/loop.py" --harness {h} --every 15m'
+    # The loop command starts loop.py in the background on every harness: its
+    # ticks run as fresh headless sessions, so nothing accumulates in the chat.
+    return f"{_cmd(h, 'loop')} start"
 
 
 COND = re.compile(r"<!-- if:([a-z,]+) -->\n?(.*?)<!-- endif -->\n?", re.S)

@@ -99,6 +99,9 @@ def command_for(harness: str, root: Path, agent: str | None, prompt: str,
 def agent_env(agent: str | None, root: Path) -> dict:
     env = dict(os.environ)
     env["SLICED_LOOP_ROOT"] = str(root)
+    # Started from inside a Claude Code session (the loop command), the marker
+    # it sets would make each `claude -p` behave as a nested session.
+    env.pop("CLAUDECODE", None)
     for key in ("SLICED_LOOP_AGENT", "GEMINI_CLI_SLICED_LOOP_AGENT"):
         # GEMINI_CLI_* survives Gemini's hook-environment redaction.
         if agent:

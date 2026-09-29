@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """The supervision loop, run from a terminal, for every harness.
 
-    loop.py --harness H [--every 15m] [--idle-ticks N] [--once]
+    loop.py --harness H [--every 15m] [--idle-ticks N] [--once]      run in this terminal
+    loop.py --harness H [--every 15m] [--idle-ticks N] --detach      start in the background
+    loop.py --stop | --status                                         for a running loop
+
+`--detach` is what the loop command uses from chat: the loop runs on after the
+chat session ends, logging to <workspace>/.state/logs/loop.log.
 
 Each tick runs outside your conversation, so nothing accumulates in it:
 
@@ -28,11 +33,14 @@ Ctrl-C stops the loop; a tick already running is allowed to finish.
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor
+import json
 import os
 import re
+import signal
+import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -102,30 +110,151 @@ def tick(harness: str) -> tuple[bool, str]:
     return False, "\n        ".join(lines) + note
 
 
+# --- running in the background ----------------------------------------------
+
+def state_file() -> Path:
+    return tasklib.state_dir() / "loop.json"
+
+
+def log_file() -> Path:
+    return tasklib.state_dir() / "logs" / "loop.log"
+
+
+def running_loop() -> dict | None:
+    """The loop running for this project, if one is."""
+    try:
+        info = json.loads(state_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return info if tasklib.alive(int(info.get("pid", 0))) else None
+
+
+def human_interval(seconds: int) -> str:
+    return f"{seconds // 3600}h" if seconds % 3600 == 0 else (
+        f"{seconds // 60}m" if seconds % 60 == 0 else f"{seconds}s")
+
+
+def detach(args: argparse.Namespace) -> int:
+    """Start this loop in its own session, logging to .state/logs/loop.log."""
+    if (info := running_loop()):
+        print(f"already running (pid {info['pid']}, {info['harness']}, every "
+              f"{human_interval(info['every'])}) — `--status` to see it, `--stop` to end it")
+        return 3
+    argv = [sys.executable, str(Path(__file__).resolve()), "--harness", args.harness,
+            "--every", str(args.every)]
+    if args.idle_ticks is not None:
+        argv += ["--idle-ticks", str(args.idle_ticks)]
+    log_file().parent.mkdir(parents=True, exist_ok=True)
+    with open(log_file(), "a", encoding="utf-8") as out:
+        proc = subprocess.Popen(argv, cwd=str(tasklib.ROOT), env=dispatch.agent_env(None, tasklib.ROOT),
+                                stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+                                start_new_session=True)
+    time.sleep(1.5)  # long enough to see it refuse or crash on start
+    if proc.poll() is not None:
+        tail = log_file().read_text(encoding="utf-8", errors="replace").splitlines()[-3:]
+        if proc.returncode == 0:
+            print("the loop started and has already stopped:\n  " + "\n  ".join(tail))
+            return 0
+        print("the loop failed to start:\n  " + "\n  ".join(tail))
+        return 1
+    limit = tasklib.idle_limit(args.idle_ticks)
+    print(f"loop started (pid {proc.pid}): {args.harness}, a tick every {human_interval(args.every)}, "
+          f"{'no idle limit' if not limit else f'stops after {limit} idle ticks'}. "
+          f"Log: {log_file().relative_to(tasklib.ROOT)}")
+    return 0
+
+
+def stop() -> int:
+    info = running_loop()
+    if not info:
+        print("no loop is running for this project")
+        return 0
+    os.kill(int(info["pid"]), signal.SIGTERM)
+    for _ in range(20):
+        if not tasklib.alive(int(info["pid"])):
+            print(f"loop stopped (pid {info['pid']})")
+            return 0
+        time.sleep(0.5)
+    print(f"asked the loop to stop (pid {info['pid']}); it ends when its current tick finishes")
+    return 0
+
+
+def status() -> int:
+    info = running_loop()
+    if info:
+        limit = info.get("idle_ticks")
+        print(f"running (pid {info['pid']}) since {info['started']}: {info['harness']}, a tick every "
+              f"{human_interval(info['every'])}, "
+              f"{'no idle limit' if not limit else f'stops after {limit} idle ticks'}")
+    else:
+        print("not running")
+    try:
+        idle = json.loads((tasklib.state_dir() / "idle.json").read_text()).get("count", 0)
+        if info and idle:
+            print(f"idle ticks in a row: {idle}")
+    except (OSError, ValueError):
+        pass
+    if log_file().is_file():
+        lines = [l for l in log_file().read_text(encoding="utf-8", errors="replace").splitlines() if l.strip()]
+        if lines:
+            print(f"last lines of {log_file().relative_to(tasklib.ROOT)}:")
+            print("\n".join(f"  {l}" for l in lines[-8:]))
+    return 0
+
+
+# --- the loop itself ----------------------------------------------------------
+
+STOPPING = False
+
+
+def _on_term(signum, frame) -> None:  # noqa: ARG001
+    global STOPPING
+    STOPPING = True  # finish the current tick, then stop
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--harness", required=True, choices=list(build.HARNESSES))
-    parser.add_argument("--every", type=parse_interval, default=parse_interval("15m"))
+    parser.add_argument("--harness", choices=list(build.HARNESSES),
+                        help="required to run or start the loop")
+    parser.add_argument("--every", type=parse_interval, default=parse_interval("15m"),
+                        help="time between ticks: 90s, 10m, 1h (default 15m)")
     parser.add_argument("--idle-ticks", type=int, metavar="N",
                         help=f"end after N consecutive idle ticks (default: idle_ticks in "
                              f".sliced-loop.json, else {tasklib.IDLE_TICKS}; 0 = never)")
     parser.add_argument("--once", action="store_true", help="run one tick and exit")
+    what = parser.add_mutually_exclusive_group()
+    what.add_argument("--detach", action="store_true",
+                      help="start in the background, logging to .state/logs/loop.log, and return")
+    what.add_argument("--stop", action="store_true", help="stop the running loop after its current tick")
+    what.add_argument("--status", action="store_true", help="is it running, and its latest tick lines")
     args = parser.parse_args()
     cfg_module.require()
 
-    lock = tasklib.state_dir() / "loop.pid"
-    lock.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        other = int(lock.read_text().strip())
-        if other != os.getpid() and tasklib.alive(other):
-            print(f"another loop is already running (pid {other})", file=sys.stderr)
-            return 3
-    except (OSError, ValueError):
-        pass
-    lock.write_text(str(os.getpid()))
+    if args.stop:
+        return stop()
+    if args.status:
+        return status()
+    if not args.harness:
+        parser.error("--harness is required to run or start the loop")
+    if args.detach:
+        return detach(args)
+
+    if (info := running_loop()) and int(info["pid"]) != os.getpid():
+        print(f"another loop is already running (pid {info['pid']})", file=sys.stderr)
+        return 3
+    limit = tasklib.idle_limit(args.idle_ticks)
+    state_file().parent.mkdir(parents=True, exist_ok=True)
+    state_file().write_text(json.dumps({
+        "pid": os.getpid(), "harness": args.harness, "every": args.every, "idle_ticks": limit,
+        "started": time.strftime("%Y-%m-%d %H:%M")}), encoding="utf-8")
+    # A new loop counts its own idle ticks, not the last loop's.
+    (tasklib.state_dir() / "idle.json").write_text(json.dumps({"count": 0}), encoding="utf-8")
+    signal.signal(signal.SIGTERM, _on_term)
+    print(f"{time.strftime('%H:%M')}  loop started: {args.harness}, a tick every "
+          f"{human_interval(args.every)}, {'no idle limit' if not limit else f'stops after {limit} idle ticks'}",
+          flush=True)
 
     try:
-        limit = tasklib.idle_limit(args.idle_ticks)
         while True:
             quiet, line = tick(args.harness)
             r = tasklib.record_tick(quiet, limit)
@@ -133,17 +262,21 @@ def main() -> int:
                 line += f"  (idle {r['count']}/{limit})"
             print(f"{time.strftime('%H:%M')}  {line}", flush=True)
             if r["stop"]:
-                print(f"stopped: {limit} idle ticks in a row — nothing moved and nobody is working. "
-                      f"Run the loop again to resume.")
+                print(f"{time.strftime('%H:%M')}  stopped: {limit} idle ticks in a row — nothing moved "
+                      f"and nobody is working. Start the loop again to resume.", flush=True)
                 return 0
             if args.once:
                 return 0
-            time.sleep(args.every)
+            for _ in range(args.every):
+                if STOPPING:
+                    print(f"{time.strftime('%H:%M')}  stopped on request.", flush=True)
+                    return 0
+                time.sleep(1)
     except KeyboardInterrupt:
         print("\nstopped.")
         return 130
     finally:
-        lock.unlink(missing_ok=True)
+        state_file().unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
