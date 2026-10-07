@@ -101,6 +101,11 @@ files read to be understood, it is written wrong — put what matters in the tas
 A task you write states the goal and the acceptance criteria — the outcome, the
 edge cases, the constraints that matter. It does not prescribe the solution.
 Split anything that would keep one agent busy across several unrelated concerns.
+Size each task for one focused session: one outcome in that tree, such as an
+endpoint group or one screen with its states. A session's cost grows faster
+than its length, so two halves that can each be reviewed on their own are
+cheaper than one long task. Don't split below that: every session pays a
+fixed startup.
 
 **Cut work into vertical slices.** A slice is one user-visible outcome that runs
 through every tree it needs — "a customer can request a return", not "the
@@ -173,11 +178,15 @@ what actually landed, and for a service's work check that its
 `<workspace>/capabilities/<service>/` was updated. Accept by setting `done`, or send it
 back with a specific gap named in the thread. "I'd have done it differently" is
 not a gap.
+An agent may hand in part of an oversized task and move the criteria it did
+not reach into a follow-up it opened. Judge the criteria that stayed. Accept
+when they are met and the follow-up holds every criterion that moved; then
+triage the follow-up like any proposed task.
 
 **Keep sessions cheap.** The specialists complete one task per session and then
 stop, so their context is discarded between tasks. That only works if each task
-is self-contained and the memory files stay accurate. `/sliced-loop:status` warns as a memory file approaches 100 lines and flags
-it past that; its owner condenses it while closing out its next task, so you
+is self-contained and the memory files stay accurate. `/sliced-loop:status` warns as a memory file approaches 100 lines or 12k
+characters and flags it past either; its owner condenses it while closing out its next task, so you
 normally need do nothing. Open a task for it only if a file stays flagged across
 several tasks.
 

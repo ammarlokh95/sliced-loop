@@ -1,7 +1,8 @@
 # <agent> memory — <project>
 
 _Keep what a fresh session genuinely needs — length is not the enemy, staleness
-is. Rewrite entries in place rather than stacking them. Past ~100 lines,
+is. Rewrite entries in place rather than stacking them. Past ~100 lines or
+~12k characters,
 condense: merge overlapping notes, drop what no longer holds, keep the reasons._
 
 ## Stack
