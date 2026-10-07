@@ -152,14 +152,15 @@ def cmd_status(args: argparse.Namespace) -> int:
               + " — grant the access its thread asks for, then say so there")
 
     sizes = tasklib.memory_sizes()
-    over = [(n, c) for n, c in sizes if c >= tasklib.COMPACT_AT]
-    near = [(n, c) for n, c in sizes if tasklib.WARN_AT <= c < tasklib.COMPACT_AT]
+    over = [s for s in sizes if tasklib.memory_level(s[1], s[2]) == "compact"]
+    near = [s for s in sizes if tasklib.memory_level(s[1], s[2]) == "warn"]
+    size = lambda n, l, c: f"{n} {l} lines/{c // 1000}k chars"
     if over:
-        print(f"memory NEEDS COMPACTION (>= {tasklib.COMPACT_AT}): "
-              + ", ".join(f"{n} {c} lines" for n, c in over))
+        print(f"memory NEEDS COMPACTION (>= {tasklib.COMPACT_AT} lines or "
+              f"{tasklib.COMPACT_CHARS // 1000}k chars): " + ", ".join(size(*s) for s in over))
         print(f"{'':{w}}         its owner condenses it at the end of its next task")
     if near:
-        print("memory approaching compaction: " + ", ".join(f"{n} {c} lines" for n, c in near))
+        print("memory approaching compaction: " + ", ".join(size(*s) for s in near))
     return 0
 
 

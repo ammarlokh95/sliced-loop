@@ -29,6 +29,10 @@ STATUSES = ["proposed", "ready", "in-progress", "blocked", "review", "done"]
 
 COMPACT_AT = 100  # lines; past this the owning agent condenses the file
 WARN_AT = 80      # lines; early warning so compaction is never a surprise
+# Characters too: a file of long lines passes the line check while costing every
+# session that reads it the same as a far longer one.
+COMPACT_CHARS = 12_000
+WARN_CHARS = 10_000
 
 # An agent session runs minutes, not hours. Past this with nothing touched at
 # all, an `in-progress` claim belongs to a session that died — rate limit,
@@ -327,16 +331,27 @@ def research_files(query: str = "") -> list[dict]:
 
 # --- memory -----------------------------------------------------------------
 
-def memory_sizes() -> list[tuple[str, int]]:
+def memory_sizes() -> list[tuple[str, int, int]]:
+    """(file name, lines, characters) for each memory file."""
     out = []
     memory = WORKSPACE / "memory"
     if memory.is_dir():
         for path in sorted(memory.glob("*.md")):
             try:
-                out.append((path.name, len(path.read_text(encoding="utf-8").splitlines())))
+                text = path.read_text(encoding="utf-8")
             except OSError:
                 continue
+            out.append((path.name, len(text.splitlines()), len(text)))
     return out
+
+
+def memory_level(lines: int, chars: int) -> str:
+    """"compact", "warn" or "" for a memory file of this size."""
+    if lines >= COMPACT_AT or chars >= COMPACT_CHARS:
+        return "compact"
+    if lines >= WARN_AT or chars >= WARN_CHARS:
+        return "warn"
+    return ""
 
 
 # --- sessions and the idle counter ------------------------------------------

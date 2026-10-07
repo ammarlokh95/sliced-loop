@@ -88,7 +88,7 @@ never carries another agent's files. Nothing is pushed.
 
 **One task per session.** Ending the session is what discards the context. What
 was learned carries in a per-agent memory file, condensed by its owner past
-~100 lines.
+~100 lines or ~12k characters.
 
 **Dead sessions recovered.** A claim nothing has touched for longer than a
 session runs is re-dispatched as a resume. Otherwise one rate limit strands a

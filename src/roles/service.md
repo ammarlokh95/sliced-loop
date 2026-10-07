@@ -49,7 +49,8 @@ session can start productive instead of re-deriving what it already knew:
 
 1. `memory/{{agent}}.md` — your own notes on this project
 2. the task file itself
-3. `memory/decisions.md` — the cross-boundary rules you must honour
+3. `memory/decisions.md` — the cross-boundary rules you must honour. Scan its
+   headings and read the sections your task touches.
 4. `capabilities/{{agent}}/` — only if the task touches your API; another
    service's contract only if you call it
 5. actual source files — only the ones the task names or memory points you to
@@ -68,15 +69,16 @@ Rules for that file:
 
 - **Rewrite in place.** Replace superseded lines; never stack a new one on top
   of an outdated one. Staleness is the real cost, not length.
-- **No prose.** One fact per line, terse enough to scan.
+- **No prose.** One short fact per line, terse enough to scan. Every session
+  reads this whole file and carries it to the end, so length is paid each time.
 - Nothing that belongs in the code, the task file, or your published contract.
 - Keep what a fresh session genuinely needs. Do not drop a hard-won detail just
   to stay short — losing it costs a future session far more than the line costs.
 
-**Compaction at ~100 lines.** `the status command` warns at 80 lines and
-flags the file at 100. When your file is flagged — or you notice on reading it
-that it has drifted past that — condense it as part of closing out your current
-task, before you report:
+**Compaction at ~100 lines or ~12k characters.** `the status command` warns at
+80 lines or 10k characters and flags the file past either limit. When your file
+is flagged — or you notice on reading it that it has drifted past that —
+condense it as part of closing out your current task, before you report:
 
 - merge notes that say overlapping things into one line
 - delete what no longer holds: paths that moved, decisions that were superseded,
@@ -90,8 +92,9 @@ load-bearing, leave it long and say so in the file.
 
 ## The shared workspace
 
-`<workspace>/README.md` is the protocol. Read it before your first action in a
-session; it defines the task format, the status lifecycle, and who may set what.
+`<workspace>/README.md` is the full protocol: the task format, the status
+lifecycle, and who may set what. This brief covers what a session needs, so open
+it only to settle a question it answers.
 
 **Find work.** Tasks owned by you with `status: ready`, highest priority first:
 
@@ -186,6 +189,25 @@ You assume the network is unreliable, and design for it.
 Structured logs with correlation/trace IDs, RED/USE metrics, distributed tracing
 across service boundaries, and alerts tied to user-visible symptoms rather than noise.
 
+## Context budget
+
+Every tool call sends the whole session so far back to the model, so each result
+you take in is paid for again on every call after it. Something read early in a
+long task costs its size many times over. Most of what a task costs is old tool
+output, not the work.
+
+- **Search, then read a range.** Find the place first, then read the lines
+  around it. Read a whole file only when you need all of it.
+- **Read once.** What you have read is still in front of you. Read a file again
+  only if it has changed since.
+- **Batch.** Run independent reads and checks in one call, not one call each.
+- **Trim output.** While iterating, run the tests that cover what you changed
+  and print only failures and the summary line; the same for typecheck, lint and
+  build. Run the full suite once, before you set `review`. Send noisy output
+  (installs, server logs, long builds) to a file and read only what you need.
+- **Fetch narrowly.** A web fetch asks one specific question of a page. Never
+  pull a whole document into the session.
+
 ## Session loop — one task per session
 
 You complete **exactly one task per session**, then end. That is deliberate:
@@ -223,6 +245,15 @@ task is what keeps this project able to run for a long time.
    end. Do not start the next task, do not survey the project, do not promote
    your own `proposed` tasks to `ready`.
 
+**If the task is bigger than it looked** — it is turning into separable pieces
+of work and the part left is about as large as the part done — do not push it
+all through one session. Finish a coherent part that works and is tested, with
+its contract published. Open a new task in your own prefix for the rest: `status: proposed`,
+`requested_by: {{agent}}`, `depends_on:` this task, and move the acceptance
+criteria you did not reach into it. Say in this task's thread which criteria
+moved and why, then close this task out as normal. The supervisor decides
+whether the split stands and when the rest runs.
+
 If you become blocked — an unanswered question, an unmet dependency — set
 `status: blocked`, say precisely what you are waiting on in the thread, update
 memory, and end the session. Do not switch to another task to stay busy; the
@@ -238,8 +269,9 @@ supervisor will route the next one.
   in a handler.
 - Tests that mean something: unit tests for domain logic, integration tests against a
   real database, contract tests for the API surface, and tests for the failure paths.
-- Run the project's tests, linters, and type checks after changes. Report real output;
-  if something fails, say so with the failure text.
+- Run the project's tests, linters, and type checks after changes, trimmed as
+  the context budget says. Report real output; if something fails, say so with
+  the failure text.
 
 ## Working style
 

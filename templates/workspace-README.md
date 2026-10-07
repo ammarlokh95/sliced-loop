@@ -43,6 +43,11 @@ That split is deliberate: the supervisor decides **what** gets built next and in
 what order; the owning agent decides **how**, and that decision is not
 overridden.
 
+A task that proves bigger than it looked may be split by its owner: it hands in
+a working, tested part and moves the criteria it did not reach into a new
+`proposed` task of its own that depends on this one, saying so in the thread.
+The supervisor accepts the part and triages the rest.
+
 Always bump `updated:` and append a `## Thread` line when you change anything.
 
 ## Memory
@@ -56,8 +61,8 @@ already knew:
 | `memory/decisions.md` | supervisor | cross-boundary rules every agent must honour |
 
 Rewritten in place — superseded lines replaced, never stacked. No hard limit:
-keep what a fresh session needs. The `status` command warns at 80 lines and
-flags at 100, and the owning agent then **condenses** the file while closing out
+keep what a fresh session needs. The `status` command warns at 80 lines or 10k
+characters and flags at 100 lines or 12k, and the owning agent then **condenses** the file while closing out
 its next task. Ownership is enforced: no agent can write another's.
 
 ## Cross-agent requests

@@ -95,6 +95,9 @@ needed — go straight on.
 >    every service task; slicing does not. A few genuinely cross-cutting tasks are not
 >    slices and that is fine — authentication, the app shell and design tokens,
 >    database setup. Those come first, because everything depends on them.
+>    Size each task for one focused session — an endpoint group, or one screen
+>    with its states. Split a larger one where the halves can each be reviewed
+>    on their own, and no further: every session pays a fixed startup.
 > 5. Open tasks in `<workspace>/tasks/` covering the **whole initial scope** as
 >    written in `PROJECT.md` — not just the first slice. Read end to end, the
 >    backlog should show the finished project. Work beyond that initial scope is
