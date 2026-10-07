@@ -19,7 +19,7 @@ The parent directory's `CLAUDE.md` describes an older, non-plugin version of thi
 - **Root `agents/` (supervisor and research only) and `commands/` are generated Claude Code output, but committed**, because a Claude plugin installs straight from the repo. Never edit them by hand. Run `python3 scripts/build.py`, then check with `python3 scripts/build.py --check`.
 - Output for every other harness goes to the gitignored `dist/<harness>/`, because it embeds this checkout's absolute path. `scripts/install.py <harness>` renders it and installs it. It keeps a manifest, refuses to overwrite files it didn't create, and supports `--uninstall`.
 - `harness/opencode/sliced-loop.js` is the OpenCode scope plugin template. Its `__SLICED_LOOP_ROOT__` placeholder is filled at build time.
-- `.claude-plugin/plugin.json` and `marketplace.json` hold the Claude manifest. Keep the two `version` fields in sync; the Gemini and Cursor manifests take their version from `plugin.json`.
+- `.claude-plugin/plugin.json` and `marketplace.json` hold the Claude manifest. Keep the two `version` fields in sync; the Gemini and Cursor manifests take their version from `plugin.json`. Each version bump gets an entry at the top of `CHANGELOG.md`.
 - `hooks/hooks.json` holds the Claude hook, which is `scope.py hook claude`.
 - `templates/` holds what `init` copies into the target repo's workspace. It's shared by every harness, so keep it free of any one harness's command syntax.
 - `scripts/` holds all executable code. It uses only the standard library and has no install step.
